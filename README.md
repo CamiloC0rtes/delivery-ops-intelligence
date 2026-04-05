@@ -46,18 +46,6 @@ python app.py
 # → Abre http://localhost:8000
 ```
 
-## Despliegue en Railway
-
-1. Sube a GitHub (sin `data.xlsx` y sin `.env`)
-2. Railway → **New Project → Deploy from GitHub**
-3. Agrega variables de entorno:
-   - `OPENAI_API_KEY` = tu key
-   - `PORT` = 8000 (Railway lo setea automáticamente)
-4. Start command: `python app.py`
-5. ✅ Railway detecta `requirements.txt` y despliega automáticamente
-
-> Para Railway necesitarás subir `data.xlsx` de alguna forma (volumen, o convertirlo a un CSV embebido en el repo).
-
 ## API Endpoints
 
 | Método | Ruta | Descripción |
