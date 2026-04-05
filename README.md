@@ -22,7 +22,7 @@ rappi_web/
 
 ```bash
 # 1. Clonar y entrar
-git clone https://github.com/tu-usuario/rappi-ops-intelligence.git
+git clone https://github.com/CamiloC0rtes/rappi-ops-intelligence.git
 cd rappi-ops-intelligence
 
 # 2. Entorno virtual
