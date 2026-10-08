@@ -1,71 +1,93 @@
-# Rappi Ops Intelligence — Web App 🚀
+# Delivery Ops Intelligence
 
-Dashboard de inteligencia operativa con chat en lenguaje natural, visualizaciones automáticas y detección de insights. Construido con FastAPI + vanilla JS.
+[![CI](https://github.com/CamiloC0rtes/delivery-ops-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/CamiloC0rtes/delivery-ops-intelligence/actions/workflows/ci.yml)
 
-## Estructura
+Ask questions about weekly delivery-operations metrics in plain Spanish — *"¿qué 5 zonas cayeron más en órdenes?"*, *"compara Perfect Orders entre zonas Wealthy y Non Wealthy"* — and get an answer built only from the rows that were actually queried, plus a chart. An insight engine flags anomalies, sustained declines, laggards and opportunities on its own.
 
+**Stack:** FastAPI · OpenAI · pandas · Pydantic · Chart.js · GitHub Actions
+
+> The repo ships with a **synthetic dataset** (108 zones, 6 countries, 9 weeks, 10 metrics) with the same structure as the original. Every zone name and number is invented; a few patterns are planted on purpose so there is something real to find.
+
+---
+
+## How a question is answered
+
+```mermaid
+graph LR
+    Q[question] --> X[LLM: extract filters as JSON]
+    X --> V[Pydantic validation<br/>against the catalog]
+    V --> P[deterministic pandas query]
+    P --> A[LLM: answer from the returned rows only]
+    P --> C[chart]
 ```
-rappi_web/
-├── app.py              # FastAPI backend (API + servidor de frontend)
-├── data_loader.py      # Transformación wide→long + feature engineering
-├── query_engine.py     # NL → consultas pandas
-├── insights.py         # Motor de detección automática
-├── static/
-│   └── index.html      # Frontend completo (chat + charts + insights)
-├── data.xlsx           # Tu archivo de datos (no se sube a GitHub)
-├── requirements.txt
-├── .env.example
-└── README.md
-```
 
-## Instalación local
+The LLM never computes numbers and never writes code. It only (1) turns the question into filters and (2) explains the rows pandas returned.
+
+- **Validation layer (`entities.py`)** — whatever the model returns is checked against `catalog.py`: unknown metrics or countries are dropped instead of guessed, `top_n` is coerced and clamped (`"five"` → 5, `999` → 50), enums fall back to safe defaults, and malformed JSON degrades to a summary instead of an error.
+- **Fixed filter vocabulary** — semantic concepts like *"deterioro sostenido"* map to conditions from a fixed table; nothing the model writes is executed.
+- **Follow-ups** — *"¿y en Argentina?"* keeps the previous metric and ranking and swaps only the country.
+
+## Evaluation
+
+`tests/eval/golden.jsonl` holds 12 questions (rankings, filters, comparisons, multi-metric, correlations, a follow-up). For each one the eval checks:
+
+| Check | Question it answers |
+|---|---|
+| **Extraction** | Did the LLM produce the expected filters (metric, country, top_n, direction…)? |
+| **Grounding** | Does the answer mention the top zones that pandas returns for those filters? |
+| **Fabrication** | Does the answer name any real zone that is *not* in the queried result? |
+
+Ground truth comes from the same deterministic engine, so a wrong extraction shows up as both an extraction miss and a grounding miss.
 
 ```bash
-# 1. Clonar y entrar
-git clone https://github.com/CamiloC0rtes/rappi-ops-intelligence.git
-cd rappi-ops-intelligence
+OPENAI_API_KEY=... python -m tests.eval.run_eval      # writes eval_report.md
+```
 
-# 2. Entorno virtual
-python -m venv .venv
-# Mac/Linux:
-source .venv/bin/activate
-# Windows:
-.venv\Scripts\Activate.ps1
+It also runs from **Actions → Accuracy eval** (needs an `OPENAI_API_KEY` repo secret).
 
-# 3. Dependencias
+## Insight engine
+
+Runs at start-up over every zone × metric and ranks findings by severity:
+
+- **Anomalies** — week-over-week swings beyond ±10 %
+- **Sustained trends** — 3+ consecutive weeks down or up. Severity scales with the size of the move, so a 0.1 % wobble is not reported as an incident
+- **Benchmarks** — zones more than 1.5 σ below their city
+- **Opportunities** and **correlations** between metrics
+
+## Run it
+
+```bash
 pip install -r requirements.txt
-
-# 4. Variables de entorno
-cp .env.example .env
-# Edita .env → OPENAI_API_KEY=sk-...
-
-# 5. Coloca tu Excel como data.xlsx en la raíz
-
-# 6. Iniciar
-python app.py
-# → Abre http://localhost:8000
+cp .env.example .env          # add OPENAI_API_KEY to enable the chat (optional)
+python app.py                 # http://localhost:8000
 ```
 
-## API Endpoints
+Without a key the app still starts: dashboards, insights and zone charts work; only the chat is disabled.
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `POST` | `/api/chat` | Chat con el bot |
-| `GET`  | `/api/insights` | Lista de insights (filtrable) |
-| `GET`  | `/api/insights/summary` | Resumen por tipo/severidad/país |
-| `GET`  | `/api/filters` | Valores disponibles para filtros |
-| `GET`  | `/api/ranking` | Top/bottom zonas por métrica |
-| `GET`  | `/api/timeseries` | Serie de tiempo de una zona |
-| `DELETE` | `/api/session/{id}` | Resetear sesión de chat |
-
-## .gitignore
-
+```bash
+python scripts/generate_data.py --seed 7   # regenerate the synthetic dataset
+python validate_data.py                    # schema and quality checks for any input file
+DATA_FILE=path/to/your.xlsx python app.py  # run on your own data with the same structure
 ```
-.env
-data.xlsx
-*.xlsx
-__pycache__/
-.venv/
-*.pyc
-.DS_Store
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest          # 57 tests, LLM mocked — runs in CI on every push
 ```
+
+They cover the validation layer (garbage JSON, unknown values, clamping), query results against pandas, the generator's schema and planted patterns, every API endpoint, the chat flow with a fake LLM, and the eval's own scoring.
+
+## Project layout
+
+| File | Role |
+|---|---|
+| `app.py` | FastAPI app, prompts, chat flow and dashboard endpoints |
+| `catalog.py` | Single source of truth for metrics, aliases, countries and cities |
+| `entities.py` | Validation of the LLM's extracted filters |
+| `query_engine.py` | Deterministic pandas queries |
+| `insights.py` | Automatic insight detection |
+| `data_loader.py` | Wide → long transform and per-zone features (WoW change, slope, z-score) |
+| `scripts/generate_data.py` | Synthetic dataset generator |
+| `static/index.html` | Single-page UI: chat with charts, insights, zone trends |

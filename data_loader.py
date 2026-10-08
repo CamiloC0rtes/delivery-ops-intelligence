@@ -3,10 +3,10 @@ data_loader.py
 Carga las 3 hojas del Excel y genera los DataFrames listos para análisis.
 """
 
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from scipy import stats
-from pathlib import Path
 
 WEEK_COLS_ROLL = ["L8W_ROLL", "L7W_ROLL", "L6W_ROLL", "L5W_ROLL",
                   "L4W_ROLL", "L3W_ROLL", "L2W_ROLL", "L1W_ROLL", "L0W_ROLL"]
@@ -107,9 +107,9 @@ def _compute_features(long: pd.DataFrame, group_cols: list) -> pd.DataFrame:
 
         x = np.arange(len(vals))
         try:
-            slope, _, r2, _, _ = stats.linregress(x, vals)
+            slope = stats.linregress(x, vals).slope
         except Exception:
-            slope, r2 = np.nan, np.nan
+            slope = np.nan
 
         if len(vals) >= 3:
             last3 = vals[-3:]
@@ -118,7 +118,7 @@ def _compute_features(long: pd.DataFrame, group_cols: list) -> pd.DataFrame:
         else:
             is_declining = is_improving = False
 
-        row = dict(zip(group_cols, keys if isinstance(keys, tuple) else [keys]))
+        row = dict(zip(group_cols, keys if isinstance(keys, tuple) else [keys], strict=True))
         row.update({
             "L0W_VALUE":       round(float(l0w), 6) if not np.isnan(l0w) else None,
             "L1W_VALUE":       round(float(l1w), 6) if not np.isnan(l1w) else None,

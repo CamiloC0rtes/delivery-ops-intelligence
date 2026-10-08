@@ -3,9 +3,10 @@ insights.py
 Motor de detección automática de insights sobre los DataFrames procesados.
 """
 
-import pandas as pd
-import numpy as np
 from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
 
 
 @dataclass
@@ -122,20 +123,34 @@ def _anomalies(df: pd.DataFrame, threshold: float) -> list[Insight]:
     return insights
 
 
+TREND_HIGH_PCT = 5.0    # projected 3-week change vs current value
+TREND_MEDIUM_PCT = 2.0
+
+
+def _trend_severity(label: str, slope: float, l0w: float) -> str:
+    """A 3-week decline is only 'high' if it is material: a 0.1% wobble is not an incident."""
+    if label != "deterioro":
+        return "low"
+    rel = abs(slope) * 3 / abs(l0w) * 100 if l0w else 0.0
+    if rel >= TREND_HIGH_PCT:
+        return "high"
+    return "medium" if rel >= TREND_MEDIUM_PCT else "low"
+
+
 def _sustained_trends(df: pd.DataFrame) -> list[Insight]:
     insights = []
     for col, label in [
         ("IS_DECLINING_3W", "deterioro"),
         ("IS_IMPROVING_3W", "mejora"),
     ]:
-        severity = "high" if label == "deterioro" else "low"
         if col not in df.columns:
             continue
-        hits = df[df[col] == True].copy()
+        hits = df[df[col] == True].copy()  # noqa: E712
         for _, r in hits.iterrows():
             slope = r.get("TREND_SLOPE") or 0
             l0w   = r["L0W_VALUE"] or 0
             proj  = l0w + slope * 4
+            severity = _trend_severity(label, slope, l0w)
             insights.append(Insight(
                 tipo="trend", severity=severity,
                 country=r.get("COUNTRY", ""), city=r.get("CITY", ""),

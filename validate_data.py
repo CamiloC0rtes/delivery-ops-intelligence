@@ -5,11 +5,14 @@ Uso: python validate_data.py
      python validate_data.py --data otra_ruta.xlsx
 """
 
-import sys
 import argparse
-import pandas as pd
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from catalog import COUNTRIES, PRIORITIES, ZONE_TYPES
 
 # ── Esquemas esperados ────────────────────────────────────────
 EXPECTED_METRICS_COLS = [
@@ -21,9 +24,9 @@ EXPECTED_ORDERS_COLS = [
     "COUNTRY", "CITY", "ZONE", "METRIC",
     "L8W", "L7W", "L6W", "L5W", "L4W", "L3W", "L2W", "L1W", "L0W"
 ]
-VALID_COUNTRIES  = {"CO","PE","AR","MX","BR","CL","EC","UY","CR"}
-VALID_ZONE_TYPES = {"Wealthy","Non Wealthy"}
-VALID_PRIORITIES = {"High Priority","Prioritized","Not Prioritized"}
+VALID_COUNTRIES  = set(COUNTRIES)
+VALID_ZONE_TYPES = set(ZONE_TYPES)
+VALID_PRIORITIES = set(PRIORITIES)
 WEEK_COLS_M = ["L8W_ROLL","L7W_ROLL","L6W_ROLL","L5W_ROLL",
                "L4W_ROLL","L3W_ROLL","L2W_ROLL","L1W_ROLL","L0W_ROLL"]
 WEEK_COLS_O = ["L8W","L7W","L6W","L5W","L4W","L3W","L2W","L1W","L0W"]
@@ -118,7 +121,7 @@ def check_outliers(df, week_cols, sheet):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data.xlsx")
+    parser.add_argument("--data", default="data/sample_data.xlsx")
     args = parser.parse_args()
 
     path = Path(args.data)
@@ -198,8 +201,8 @@ def main():
     print(f"\n{'─'*55}")
     print("  COBERTURA")
     print(f"{'─'*55}")
-    m_zones = set(zip(df_m["COUNTRY"], df_m["CITY"], df_m["ZONE"]))
-    o_zones = set(zip(df_o["COUNTRY"], df_o["CITY"], df_o["ZONE"]))
+    m_zones = set(zip(df_m["COUNTRY"], df_m["CITY"], df_m["ZONE"], strict=True))
+    o_zones = set(zip(df_o["COUNTRY"], df_o["CITY"], df_o["ZONE"], strict=True))
     in_m_not_o = m_zones - o_zones
     in_o_not_m = o_zones - m_zones
     ok(f"Zonas únicas en métricas:  {len(m_zones):,}")

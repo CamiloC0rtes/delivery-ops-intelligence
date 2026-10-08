@@ -1,26 +1,32 @@
 """
-app.py — Rappi Ops Intelligence · FastAPI backend
+app.py — Delivery Ops Intelligence · FastAPI backend
 Run: python app.py
 """
 
-import os, json, uuid, logging
-from pathlib import Path
-from datetime import datetime
+import json
+import logging
+import os
+import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
 import pandas as pd
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
+from pydantic import BaseModel
 
+from catalog import COUNTRIES, METRICS, all_cities
 from data_loader import load_excel
-from query_engine import execute_query
-from insights import run_all, Insight
+from entities import parse_llm_json
+from insights import Insight, run_all
+from query_engine import execute_correlation, execute_multivariable, execute_query
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -34,48 +40,47 @@ DATA: dict = {}
 SESSIONS: dict[str, dict] = {}   # session_id → {history, context}
 
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-DATA_FILE  = os.getenv("DATA_FILE", "data.xlsx")
-MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o")
+BASE_DIR   = Path(__file__).resolve().parent
+DATA_FILE  = os.getenv("DATA_FILE", str(BASE_DIR / "data" / "sample_data.xlsx"))
+MODEL      = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 PORT       = int(os.getenv("PORT", 8000))
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not OPENAI_KEY:
-        raise RuntimeError("Falta OPENAI_API_KEY en variables de entorno")
     if not Path(DATA_FILE).exists():
-        raise RuntimeError(f"No se encontró el archivo de datos: {DATA_FILE}")
+        raise RuntimeError(
+            f"No se encontró el archivo de datos: {DATA_FILE}. "
+            "Genera datos de ejemplo con: python scripts/generate_data.py"
+        )
 
     log.info("Cargando datos desde %s …", DATA_FILE)
     DATA.update(load_excel(DATA_FILE))
-    DATA["client"] = OpenAI(api_key=OPENAI_KEY)
+    if "client" not in DATA:  # tests inject a fake client
+        DATA["client"] = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
+    if DATA["client"] is None:
+        log.warning("OPENAI_API_KEY no configurada: el chat queda deshabilitado; dashboards e insights funcionan.")
     DATA["insights"] = run_all(DATA["metrics_long"], DATA["orders_long"])
     log.info("✅ Datos cargados — métricas: %d | órdenes: %d | insights: %d",
              len(DATA["metrics_long"]), len(DATA["orders_long"]), len(DATA["insights"]))
     yield
     log.info("Shutting down.")
 
-app = FastAPI(title="Rappi Ops Intelligence", lifespan=lifespan)
+app = FastAPI(title="Delivery Ops Intelligence", lifespan=lifespan)
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-EXTRACTION_PROMPT = """Eres un extractor de entidades para análisis de datos Rappi.
+EXTRACTION_PROMPT = """Eres un extractor de entidades para análisis de operaciones de una plataforma de delivery.
 Devuelve SOLO un JSON sin markdown. Nada más.
 
-Países: CO, PE, AR, MX, BR, CL, EC, UY, CR
-Métricas exactas: Orders, Restaurants SST > SS CVR, Retail SST > SS CVR,
-Gross Profit UE, Perfect Orders, Turbo Adoption, Pro Adoption (Last Week Status),
-Lead Penetration, Restaurants Markdowns / GMV,
-% Restaurants Sessions With Optimal Assortment,
-Non-Pro PTC > OP, % PRO Users Who Breakeven, MLTV Top Verticals Adoption
+Países: {COUNTRIES}
+Métricas exactas: {METRICS}
 
 REGLA CRITICA — CIUDAD vs ZONA:
-CIUDADES (usar campo city): Bogota, Medellin, Cali, Barranquilla, Buenos Aires,
-Lima, Ciudad De Mexico, Guadalajara, Santiago, Sao Paulo, Quito, Montevideo.
-ZONAS (usar campo zone): barrios/sectores dentro de una ciudad como Chapinero,
-Usaquen, Colina, Belgrano, Miraflores, Polanco, Palermo, etc.
-Ejemplos: "Chapinero" -> zone="Chapinero", city=null
+CIUDADES (usar campo city): {CITIES}.
+ZONAS (usar campo zone): sectores dentro de una ciudad, como "Los Cedros" o "Las Brisas Norte".
+Ejemplos: "Los Cedros" -> zone="Los Cedros", city=null
 "Bogota" -> city="Bogota", zone=null
-"Chapinero en Bogota" -> city="Bogota", zone="Chapinero"
+"Los Cedros en Medellin" -> city="Medellin", zone="Los Cedros"
 
 REGLAS DE RANKING:
 CAIDAS/BAJADAS -> sort_order="asc", concept=null (NUNCA concept="bajo performance")
@@ -93,10 +98,14 @@ metric SIEMPRE string o null, NUNCA array.
 is_new_topic=true si es pregunta nueva. false si es seguimiento ("y en X?", "esa zona?")
 
 JSON de salida:
-{"intent":"ranking|trend|comparison|anomaly|summary|filter|multivariable|correlation","metric":null,"metric_high":null,"metric_low":null,"city":null,"country":null,"zone":null,"concept":null,"top_n":null,"sort_order":"desc","zone_type":null,"priority":null,"is_new_topic":true}
-"""
+{{"intent":"ranking|trend|comparison|anomaly|summary|filter|multivariable|correlation","metric":null,"metric_high":null,"metric_low":null,"city":null,"country":null,"zone":null,"concept":null,"top_n":null,"sort_order":"desc","zone_type":null,"priority":null,"is_new_topic":true}}
+""".format(
+    COUNTRIES=", ".join(f"{c} ({v['name']})" for c, v in COUNTRIES.items()),
+    METRICS=", ".join(METRICS),
+    CITIES=", ".join(all_cities()),
+)
 
-ANALYSIS_PROMPT = """Eres un analista senior de operaciones de Rappi.
+ANALYSIS_PROMPT = """Eres un analista senior de operaciones de una plataforma de delivery.
 Recibirás una pregunta y datos ya filtrados. Analiza y responde de forma clara.
 
 REGLAS:
@@ -138,12 +147,10 @@ def extract_entities(message: str, prev_questions: list[str], client: OpenAI) ->
                 {"role": "user",   "content": f"{prev}Mensaje: {message}"},
             ],
         )
-        raw = resp.choices[0].message.content.strip().replace("```json","").replace("```","").strip()
-        return json.loads(raw)
+        return parse_llm_json(resp.choices[0].message.content).model_dump()
     except Exception as e:
         log.warning("Entity extraction failed: %s", e)
-        return {"intent":"summary","metric":None,"city":None,"country":None,
-                "concept":None,"top_n":None,"sort_order":"desc","zone_type":None,"priority":None}
+        return parse_llm_json("").model_dump()
 
 def df_to_text(df: pd.DataFrame, max_rows: int = 20) -> str:
     if df.empty:
@@ -179,7 +186,7 @@ def generate_answer(message: str, data_text: str, context: dict,
         return resp.choices[0].message.content
     except Exception as e:
         log.error("Answer generation failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Error OpenAI: {e}")
+        raise HTTPException(status_code=502, detail=f"Error OpenAI: {e}") from e
 
 def insight_to_dict(ins: Insight) -> dict:
     return {
@@ -199,9 +206,11 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    client = DATA.get("client")
+    if client is None:
+        raise HTTPException(status_code=503, detail="Chat deshabilitado: configura OPENAI_API_KEY.")
     session_id = req.session_id or str(uuid.uuid4())
     session    = get_session(session_id)
-    client     = DATA["client"]
 
     prev_questions = [m["content"] for m in session["history"] if m["role"] == "user"]
     entities = extract_entities(req.message, prev_questions, client)
@@ -212,8 +221,6 @@ async def chat(req: ChatRequest):
 
     # Claves que SIEMPRE se resetean si la nueva pregunta no las menciona explícitamente
     VOLATILE_KEYS = ("zone", "city", "concept", "zone_type", "priority")
-    # Claves que se acumulan entre turnos (país puede mantenerse si el usuario lo estableció)
-    STICKY_KEYS   = ("country",)
 
     if is_new_topic:
         # Nuevo tema: limpiar todo el contexto volátil, conservar solo lo que
@@ -243,10 +250,8 @@ async def chat(req: ChatRequest):
     try:
         ctx_intent = session["context"].get("intent", "")
         if ctx_intent == "multivariable":
-            from query_engine import execute_multivariable
             result_df, query_desc = execute_multivariable(session["context"], DATA["metrics_long"])
         elif ctx_intent == "correlation":
-            from query_engine import execute_correlation
             result_df, query_desc = execute_correlation(DATA["metrics_long"], country=session["context"].get("country",""), min_r=0.4)
         else:
             result_df, query_desc = execute_query(
@@ -304,10 +309,9 @@ async def get_insights(country: str = None, tipo: str = None,
         insights = [i for i in insights if i.country == country.upper()]
     if tipo:
         insights = [i for i in insights if i.tipo == tipo]
-        return {"insights": [insight_to_dict(i) for i in insights[:limit]],
-                "total": len(insights)}
     if severity:
         insights = [i for i in insights if i.severity == severity]
+    if tipo or severity:
         return {"insights": [insight_to_dict(i) for i in insights[:limit]],
                 "total": len(insights)}
     # Sin filtros: devolver mix balanceado por tipo para que todos los tabs tengan datos
@@ -345,7 +349,6 @@ async def insights_summary():
 @app.get("/api/filters")
 async def get_filters():
     m = DATA["metrics_long"]
-    o = DATA["orders_long"]
     return {
         "countries": sorted(m["COUNTRY"].unique().tolist()),
         "metrics":   sorted(m["METRIC"].unique().tolist()) + ["Orders"],
@@ -659,7 +662,6 @@ async def multivariable_analysis(
     limit: int = 20,
 ):
     """Zonas con alto valor en metric_high y bajo en metric_low."""
-    import pandas as pd
     m = DATA["metrics_long"].copy()
     if country:
         m = m[m["COUNTRY"] == country.upper()]
@@ -699,7 +701,8 @@ async def multivariable_analysis(
 @app.get("/api/zone-detail")
 async def zone_detail(zone: str, country: str):
     """Todas las metricas + timeseries de ordenes para una zona especifica."""
-    import math, unicodedata
+    import math
+    import unicodedata
 
     def norm(s):
         return unicodedata.normalize("NFD", str(s)).encode("ascii","ignore").decode().lower()
@@ -711,7 +714,6 @@ async def zone_detail(zone: str, country: str):
 
     m = DATA["metrics_long"]
     o = DATA["orders_long"]
-    raw_o = DATA["raw_orders"]
 
     cc = country.upper()
     mask_m = (m["COUNTRY"] == cc) & (m["ZONE"].apply(norm).str.contains(norm(zone), na=False))
@@ -834,7 +836,7 @@ async def executive_report():
             "n_zones": int(mc["ZONE"].nunique()),
         })
 
-    today = datetime.utcnow().strftime("%d %b %Y")
+    today = datetime.now(UTC).strftime("%d %b %Y")
 
     rows_critical = ""
     for i in top_all:
@@ -866,7 +868,7 @@ async def executive_report():
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8">
-<title>Rappi Ops — Reporte Ejecutivo {today}</title>
+<title>Delivery Ops — Reporte Ejecutivo {today}</title>
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
   body{{font-family:-apple-system,BlinkMacSystemFont,'Inter',sans-serif;background:#f9f8f5;color:#1a1a1a;padding:40px}}
@@ -886,7 +888,7 @@ async def executive_report():
 <div class="page">
   <div class="hdr">
     <div>
-      <div class="hdr-title">Rappi Ops Intelligence</div>
+      <div class="hdr-title">Delivery Ops Intelligence</div>
       <div class="hdr-sub">Reporte ejecutivo semanal</div>
     </div>
     <div class="hdr-date">{today}</div>
@@ -918,7 +920,7 @@ async def executive_report():
   </div>
 
   <div class="footer">
-    <span>Generado por Rappi Ops Intelligence</span>
+    <span>Generado por Delivery Ops Intelligence</span>
     <span>{len(ins)} insights analizados esta semana</span>
   </div>
 </div>
@@ -927,14 +929,13 @@ async def executive_report():
 
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html, headers={
-        "Content-Disposition": f"attachment; filename=rappi-ops-report-{datetime.utcnow().strftime('%Y%m%d')}.html"
+        "Content-Disposition": f"attachment; filename=delivery-ops-report-{datetime.now(UTC).strftime('%Y%m%d')}.html"
     })
 
 
 @app.get("/api/cities")
 async def get_cities(country: str):
     """Todas las ciudades de un pais, ordenadas alfabeticamente."""
-    import math
     m = DATA["metrics_long"]
     o = DATA["orders_long"]
     cc = country.upper()
@@ -944,15 +945,16 @@ async def get_cities(country: str):
     return {"cities": all_cities, "total": len(all_cities)}
 
 # ── Static files + SPA ────────────────────────────────────────────────────────
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 @app.get("/")
 async def root():
-    return FileResponse("static/index.html")
+    return FileResponse(BASE_DIR / "static" / "index.html")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "chat_enabled": DATA.get("client") is not None,
+            "timestamp": datetime.now(UTC).isoformat()}
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":

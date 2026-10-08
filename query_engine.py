@@ -3,10 +3,11 @@ query_engine.py
 Ejecuta consultas pandas sobre los DataFrames según entidades extraídas por el LLM.
 """
 
-import pandas as pd
-import numpy as np
-from typing import Optional
+import unicodedata
 
+import pandas as pd
+
+from catalog import ORDERS, resolve_country, resolve_metric
 
 SEMANTIC_CONCEPTS = {
     "zonas problemáticas":  "PCT_CHANGE_WOW < -10",
@@ -25,38 +26,8 @@ SEMANTIC_CONCEPTS = {
     "worst zone":           None,
 }
 
-METRIC_ALIASES = {
-    "órdenes": "Orders", "pedidos": "Orders", "orders": "Orders",
-    "cvr restaurantes": "Restaurants SST > SS CVR",
-    "cvr retail":       "Retail SST > SS CVR",
-    "restaurants cvr":  "Restaurants SST > SS CVR",
-    "gross profit":     "Gross Profit UE",
-    "ganancia":         "Gross Profit UE",
-    "profit":           "Gross Profit UE",
-    "perfect orders":   "Perfect Orders",
-    "órdenes perfectas":"Perfect Orders",
-    "turbo":            "Turbo Adoption",
-    "turbo adoption":   "Turbo Adoption",
-    "pro adoption":     "Pro Adoption (Last Week Status)",
-    "pro adoption last": "Pro Adoption (Last Week Status)",
-    "lead penetration": "Lead Penetration",
-    "markdowns":        "Restaurants Markdowns / GMV",
-    "assortment":       "% Restaurants Sessions With Optimal Assortment",
-    "mltv":             "MLTV Top Verticals Adoption",
-}
-
-COUNTRY_CODES = {
-    "colombia": "CO", "bogotá": "CO", "bogota": "CO",
-    "peru": "PE", "perú": "PE",
-    "argentina": "AR",
-    "mexico": "MX", "méxico": "MX",
-    "brasil": "BR", "brazil": "BR",
-    "chile": "CL",
-    "ecuador": "EC",
-    "uruguay": "UY",
-    "costa rica": "CR",
-}
-
+def _cc(country: str) -> str:
+    return resolve_country(country) or str(country).upper()
 
 
 def execute_multivariable(entities: dict, df_metrics) -> tuple:
@@ -68,7 +39,7 @@ def execute_multivariable(entities: dict, df_metrics) -> tuple:
 
     df = df_metrics.copy()
     if country:
-        cc = COUNTRY_CODES.get(country.lower(), country.upper())
+        cc = _cc(country)
         df = df[df["COUNTRY"] == cc]
 
     pivot = df.pivot_table(
@@ -77,7 +48,7 @@ def execute_multivariable(entities: dict, df_metrics) -> tuple:
 
     if metric_high not in pivot.columns or metric_low not in pivot.columns:
         available = [c for c in pivot.columns if c not in ("COUNTRY","CITY","ZONE")]
-        return __import__("pandas").DataFrame(), (
+        return pd.DataFrame(), (
             f"Metricas no encontradas. Disponibles: {available[:5]}"
         )
 
@@ -94,10 +65,9 @@ def execute_multivariable(entities: dict, df_metrics) -> tuple:
 
 def execute_correlation(df_metrics, country: str = "", min_r: float = 0.4) -> tuple:
     """Calcula correlaciones de Pearson entre metricas."""
-    import pandas as pd
     df = df_metrics.copy()
     if country:
-        cc = COUNTRY_CODES.get(country.lower(), country.upper())
+        cc = _cc(country)
         df = df[df["COUNTRY"] == cc]
 
     pivot = df.pivot_table(
@@ -149,9 +119,9 @@ def execute_query(
     top_n      = int(top_n_raw) if top_n_raw else None
 
     # ── 1. Seleccionar DataFrame base ─────────────────────────
-    resolved_metric = _resolve_metric(metric_raw)
+    resolved_metric = resolve_metric(metric_raw)
 
-    if resolved_metric == "Orders":
+    if resolved_metric == ORDERS:
         df = df_orders.copy()
         source_label = "órdenes"
     elif resolved_metric:
@@ -166,7 +136,6 @@ def execute_query(
         df = df[df["METRIC"] == resolved_metric]
 
     # ── 3. Filtros geográficos ────────────────────────────────
-    import unicodedata
     def _norm(s):
         return unicodedata.normalize("NFD", str(s)).encode("ascii","ignore").decode().lower()
 
@@ -181,7 +150,7 @@ def execute_query(
                 df = df_by_zone
 
     if country:
-        cc = COUNTRY_CODES.get(country.lower(), country.upper())
+        cc = _cc(country)
         df = df[df["COUNTRY"] == cc]
 
     if zone:
@@ -191,8 +160,7 @@ def execute_query(
     # Detectar comparacion Wealthy vs Non Wealthy
     is_comparison = (
         intent == "comparison" or
-        (zone_type and "vs" in zone_type.lower()) or
-        (zone_type and "wealthy" in zone_type.lower() and "non" in zone_type.lower())
+        zone_type == "comparison"
     )
 
     if is_comparison and "ZONE_TYPE" in df.columns:
@@ -208,26 +176,19 @@ def execute_query(
         grp["PCT_CHANGE_WOW"] = grp["PCT_CHANGE_WOW"].round(3)
         grp["TREND_SLOPE"]    = grp["TREND_SLOPE"].round(6)
         grp["METRIC"]  = resolved_metric or "todas"
-        grp["COUNTRY"] = country.upper() if country else "todos"
+        grp["COUNTRY"] = _cc(country) if country else "todos"
         cols = ["ZONE_TYPE","METRIC","COUNTRY","L0W_VALUE","PCT_CHANGE_WOW","TREND_SLOPE","pct_declining","n_zonas"]
         cols = [c for c in cols if c in grp.columns]
         return grp[cols].reset_index(drop=True), f"Comparacion Wealthy vs Non Wealthy: {resolved_metric or 'todas'} en {country.upper() if country else 'global'}"
 
-    if zone_type and "ZONE_TYPE" in df.columns:
-        if "non" in zone_type.lower():
-            df = df[df["ZONE_TYPE"] == "Non Wealthy"]
-        elif "wealthy" in zone_type.lower():
-            df = df[df["ZONE_TYPE"] == "Wealthy"]
+    if zone_type in ("Wealthy", "Non Wealthy") and "ZONE_TYPE" in df.columns:
+        df = df[df["ZONE_TYPE"] == zone_type]
 
     if priority and "ZONE_PRIORITIZATION" in df.columns:
-        if "high" in priority.lower():
-            df = df[df["ZONE_PRIORITIZATION"] == "High Priority"]
-        elif "not" in priority.lower():
-            df = df[df["ZONE_PRIORITIZATION"] == "Not Prioritized"]
-        elif "prioritized" in priority.lower():
-            df = df[df["ZONE_PRIORITIZATION"] == "Prioritized"]
+        df = df[df["ZONE_PRIORITIZATION"] == priority]
 
     # ── 5. Concepto semántico ─────────────────────────────────
+    # Conditions come only from the fixed SEMANTIC_CONCEPTS table, never from LLM text.
     if concept and concept in SEMANTIC_CONCEPTS:
         condition = SEMANTIC_CONCEPTS[concept]
         if condition:
@@ -293,32 +254,6 @@ def execute_query(
 
 # ── Helpers ───────────────────────────────────────────────────
 
-def _resolve_metric(raw: str) -> Optional[str]:
-    if not raw:
-        return None
-    raw_lower = raw.lower().strip()
-    # Match exacto en alias
-    if raw_lower in METRIC_ALIASES:
-        return METRIC_ALIASES[raw_lower]
-    # Match parcial - alias debe ser al menos 6 chars para evitar falsos positivos
-    for alias, real in METRIC_ALIASES.items():
-        if len(alias) >= 6 and (alias in raw_lower or raw_lower in alias):
-            return real
-    # Si el raw ya es un nombre de métrica real, devolverlo tal cual
-    real_metrics = {
-        "Orders", "Restaurants SST > SS CVR", "Retail SST > SS CVR",
-        "Gross Profit UE", "Perfect Orders", "Turbo Adoption",
-        "Pro Adoption (Last Week Status)", "Lead Penetration",
-        "Restaurants Markdowns / GMV",
-        "% Restaurants Sessions With Optimal Assortment",
-        "Non-Pro PTC > OP", "% PRO Users Who Breakeven",
-        "MLTV Top Verticals Adoption", "Restaurants SS > ATC CVR",
-    }
-    if raw in real_metrics:
-        return raw
-    return None
-
-
 def _pick_sort_col(intent: str, concept: str) -> str:
     combined = f"{intent} {concept}".lower()
     if any(w in combined for w in ("growth","crecimiento","caída","caida","caídas","caidas","bajada","descenso","drop","decline")):
@@ -326,32 +261,6 @@ def _pick_sort_col(intent: str, concept: str) -> str:
     if any(w in combined for w in ("trend","tendencia")):
         return "TREND_SLOPE"
     return "L0W_VALUE"
-
-
-def _enrich_with_timeseries(result: pd.DataFrame, df_metrics: pd.DataFrame,
-                             df_orders: pd.DataFrame, metric: str) -> pd.DataFrame:
-    """Agrega columnas de serie de tiempo (L8W..L0W) para queries de tendencia."""
-    if result.empty:
-        return result
-    try:
-        if metric == "Orders":
-            raw = df_orders.copy() if hasattr(df_orders, "copy") else df_orders
-            week_cols = ["L8W","L7W","L6W","L5W","L4W","L3W","L2W","L1W","L0W"]
-            # Reconstruct from orders long back to wide using raw_orders is not available here
-            # Just add a note column
-            return result
-        # For metrics, try to get week values from the long format
-        enriched_rows = []
-        for _, row in result.iterrows():
-            zone   = row.get("ZONE","")
-            city_v = row.get("CITY","")
-            row_dict = row.to_dict()
-            # Add week labels as text summary
-            row_dict["SERIE_SEMANAS"] = "L8W→L0W (ver pagina Analisis para grafico completo)"
-            enriched_rows.append(row_dict)
-        return pd.DataFrame(enriched_rows)
-    except Exception:
-        return result
 
 
 def _display_columns(df: pd.DataFrame) -> list:

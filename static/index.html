@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delivery Ops Intelligence</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #16181d; --muted: #667085; --line: #e4e7ec;
+    --accent: #0f766e; --accent-soft: #e6f4f1; --bad: #c2410c; --good: #15803d; --warn: #a16207;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --panel: #161b22; --text: #e6e8eb; --muted: #98a2b3; --line: #2a313c;
+            --accent: #2dd4bf; --accent-soft: #12302c; --bad: #fb923c; --good: #4ade80; --warn: #facc15; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  header .tag { font-size: 12px; color: var(--muted); }
+  nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  nav button { border: 0; background: none; color: var(--muted); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; }
+  nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  .tab { display: none; } .tab.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi .v { font-size: 24px; font-weight: 650; } .kpi .l { color: var(--muted); font-size: 13px; }
+  #messages { height: 52vh; min-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
+  .msg { padding: 10px 14px; border-radius: 12px; max-width: 92%; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.bot { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }
+  .msg .meta { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  form.ask { display: flex; gap: 8px; margin-top: 12px; }
+  input, select { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+  form.ask input { flex: 1; min-width: 0; }
+  button.primary { border: 0; background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 8px; font: inherit; cursor: pointer; }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chart-box { position: relative; height: 360px; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 12px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .insight { border-left: 4px solid var(--line); padding: 10px 12px; margin-bottom: 10px; background: var(--bg); border-radius: 0 8px 8px 0; }
+  .insight.high { border-color: var(--bad); } .insight.medium { border-color: var(--warn); } .insight.low { border-color: var(--good); }
+  .insight .head { font-weight: 600; } .insight .sub { font-size: 13px; color: var(--muted); }
+  .banner { background: var(--accent-soft); color: var(--text); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; display: none; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Delivery Ops Intelligence</h1>
+    <div class="tag">Analítica en lenguaje natural sobre métricas operativas · datos sintéticos</div>
+  </div>
+  <nav>
+    <button class="active" data-tab="chat">Asistente</button>
+    <button data-tab="insights">Insights</button>
+    <button data-tab="zones">Zonas</button>
+    <button onclick="window.open('/api/executive-report')">Reporte</button>
+  </nav>
+</header>
+
+<main>
+  <div class="banner" id="banner">El chat está deshabilitado porque falta <code>OPENAI_API_KEY</code>. Los insights y las vistas por zona funcionan igual.</div>
+
+  <section class="tab active" id="tab-chat">
+    <div class="grid">
+      <div class="card">
+        <div id="messages"></div>
+        <form class="ask" id="ask">
+          <input id="q" autocomplete="off" placeholder="Ej: ¿Cuáles son las 5 zonas con mayor caída de órdenes?">
+          <button class="primary" id="send">Preguntar</button>
+        </form>
+        <div class="chips" id="examples"></div>
+      </div>
+      <div class="card">
+        <div class="chart-box"><canvas id="chat-chart"></canvas><div class="empty" id="chat-empty">El gráfico de cada respuesta aparece aquí.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-insights">
+    <div class="kpis" id="kpis"></div>
+    <div class="card">
+      <div class="filters">
+        <select id="f-sev"><option value="">Toda severidad</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select>
+        <select id="f-tipo"><option value="">Todo tipo</option><option value="anomaly">Anomalías</option><option value="trend">Tendencias</option><option value="benchmark">Benchmark</option><option value="opportunity">Oportunidades</option></select>
+        <select id="f-country"><option value="">Todos los países</option></select>
+      </div>
+      <div id="insight-list"></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-zones">
+    <div class="card">
+      <div class="filters">
+        <select id="z-country"></select>
+        <select id="z-city"></select>
+        <select id="z-metric"></select>
+      </div>
+      <div class="chart-box"><canvas id="zone-chart"></canvas></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+let sessionId = "";
+const charts = {};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function md(s) { return escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+// ---------- tabs ----------
+document.querySelectorAll("nav button[data-tab]").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button[data-tab]").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "insights" && !$("insight-list").childElementCount) loadInsights();
+  if (b.dataset.tab === "zones" && !charts.zone) loadZone();
+}));
+
+// ---------- chat ----------
+const EXAMPLES = [
+  "¿Cuáles son las 5 zonas con mayor caída de órdenes esta semana?",
+  "Compara Perfect Orders entre zonas Wealthy y Non Wealthy en Colombia",
+  "¿Qué zonas tienen deterioro sostenido en Perfect Orders?",
+  "Zonas con alta Lead Penetration pero bajo Perfect Orders",
+];
+EXAMPLES.forEach((e) => {
+  const c = document.createElement("button");
+  c.className = "chip"; c.type = "button"; c.textContent = e;
+  c.onclick = () => { $("q").value = e; $("ask").requestSubmit(); };
+  $("examples").appendChild(c);
+});
+
+function addMsg(text, who, meta) {
+  const d = document.createElement("div");
+  d.className = "msg " + who;
+  d.innerHTML = who === "bot" ? md(text) : escapeHtml(text);
+  if (meta) { const m = document.createElement("span"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
+  $("messages").appendChild(d);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return d;
+}
+
+$("ask").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const q = $("q").value.trim();
+  if (!q) return;
+  $("q").value = ""; $("send").disabled = true;
+  addMsg(q, "user");
+  const pending = addMsg("Analizando…", "bot");
+  try {
+    const r = await api("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ message: q, session_id: sessionId }) });
+    sessionId = r.session_id;
+    pending.remove();
+    addMsg(r.answer, "bot", `${r.rows_found} registros consultados`);
+    drawChatChart(r.chart);
+  } catch (e) {
+    pending.remove();
+    addMsg("No pude responder: " + e.message, "bot");
+  } finally { $("send").disabled = false; }
+});
+
+function drawChatChart(chart) {
+  charts.chat?.destroy();
+  $("chat-empty").style.display = chart ? "none" : "block";
+  if (!chart) return;
+  const ds = chart.datasets[0];
+  charts.chat = new Chart($("chat-chart"), {
+    type: "bar",
+    data: { labels: chart.labels, datasets: [{ label: ds.label, data: ds.data,
+      backgroundColor: ds.data.map((v) => (v < 0 ? css("--bad") : css("--accent"))) }] },
+    options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false },
+      title: { display: true, text: chart.title, color: css("--text") } },
+      scales: { x: { ticks: { color: css("--muted") }, grid: { color: css("--line") } },
+                y: { ticks: { color: css("--text") }, grid: { display: false } } } },
+  });
+}
+
+// ---------- insights ----------
+const SEV = { high: "Alta", medium: "Media", low: "Baja" };
+async function loadInsights() {
+  const p = new URLSearchParams({ limit: 30 });
+  if ($("f-sev").value) p.set("severity", $("f-sev").value);
+  if ($("f-tipo").value) p.set("tipo", $("f-tipo").value);
+  if ($("f-country").value) p.set("country", $("f-country").value);
+  const r = await api("/api/insights?" + p);
+  $("insight-list").innerHTML = r.insights.length ? "" : '<div class="empty">Sin insights para estos filtros.</div>';
+  r.insights.forEach((i) => {
+    const d = document.createElement("div");
+    d.className = "insight " + i.severity;
+    d.innerHTML = `<div class="head">${escapeHtml(i.zone)} · ${escapeHtml(i.city)} (${escapeHtml(i.country)})</div>
+      <div class="sub">${escapeHtml(i.metric)} · ${i.tipo} · severidad ${SEV[i.severity] || i.severity}</div>
+      <div>${escapeHtml(i.finding)}</div><div class="sub">→ ${escapeHtml(i.recommendation)}</div>`;
+    $("insight-list").appendChild(d);
+  });
+}
+async function loadKpis() {
+  const s = await api("/api/insights/summary");
+  const k = [["Insights totales", s.total], ["Severidad alta", s.by_severity.high || 0],
+             ["Anomalías", s.by_type.anomaly || 0], ["Oportunidades", s.by_type.opportunity || 0]];
+  $("kpis").innerHTML = k.map(([l, v]) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+}
+["f-sev", "f-tipo", "f-country"].forEach((id) => $(id).addEventListener("change", loadInsights));
+
+// ---------- zones ----------
+async function loadCities() {
+  const r = await api("/api/cities?country=" + $("z-country").value);
+  $("z-city").innerHTML = r.cities.map((c) => `<option>${escapeHtml(c)}</option>`).join("");
+}
+async function loadZone() {
+  const p = new URLSearchParams({ country: $("z-country").value, city: $("z-city").value, metric: $("z-metric").value, top_n: 6 });
+  const r = await api("/api/analysis/timeseries-multi?" + p);
+  charts.zone?.destroy();
+  const palette = ["#0f766e", "#c2410c", "#1d4ed8", "#a16207", "#7c3aed", "#be123c"];
+  charts.zone = new Chart($("zone-chart"), {
+    type: "line",
+    data: { labels: r.labels, datasets: (r.series || []).map((s, i) => ({ label: s.zone, data: s.values,
+      borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], tension: 0.25 })) },
+    options: { maintainAspectRatio: false, plugins: { legend: { labels: { color: css("--text") } },
+      title: { display: true, text: `${r.metric} · ${r.city} (últimas 9 semanas)`, color: css("--text") } },
+      scales: { x: { ticks: { color: css("--muted") }, grid: { color: css("--line") } },
+                y: { ticks: { color: css("--muted") }, grid: { color: css("--line") } } } },
+  });
+}
+$("z-country").addEventListener("change", async () => { await loadCities(); loadZone(); });
+["z-city", "z-metric"].forEach((id) => $(id).addEventListener("change", loadZone));
+
+// ---------- boot ----------
+(async () => {
+  const [health, filters] = await Promise.all([api("/health"), api("/api/filters")]);
+  if (!health.chat_enabled) { $("banner").style.display = "block"; $("send").disabled = true; }
+  addMsg("Hola. Pregúntame por rankings, caídas, comparaciones o tendencias de las zonas. Cada respuesta usa solo los datos consultados.", "bot");
+  const opts = (xs) => xs.map((x) => `<option>${escapeHtml(x)}</option>`).join("");
+  $("f-country").innerHTML += opts(filters.countries);
+  $("z-country").innerHTML = opts(filters.countries);
+  $("z-metric").innerHTML = opts(filters.metrics);
+  $("z-metric").value = "Orders";
+  await loadCities();
+  loadKpis();
+})();
+</script>
+</body>
+</html>
