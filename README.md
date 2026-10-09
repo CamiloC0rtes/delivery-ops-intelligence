@@ -43,6 +43,16 @@ Ground truth comes from the same deterministic engine, so a wrong extraction sho
 OPENAI_API_KEY=... python -m tests.eval.run_eval      # writes eval_report.md
 ```
 
+**Results (gpt-4o-mini, 12 cases):**
+
+| Run | Pass | What it caught → fix |
+|---|---|---|
+| 1 | 8/12 | Questions with many filters lost all of them (extraction capped at 150 tokens) · a country-only follow-up got a city it never mentioned · comparisons routed as multi-metric → 400 tokens + JSON mode, follow-ups apply only the keys the model sent, explicit prompt rules |
+| 2 | 9/12 | The answer shortened "Los Eucaliptos Alto" to "Los Eucaliptos", **a different real zone** · `top_n` omitted for "las 3 zonas" → exact-name rule, deterministic `top_n` backup from the text |
+| 3 | **12/12** | p95 6.9 s · median 3.7 s |
+
+LLM output is not deterministic, so treat a single run as a sample; re-run it after any prompt change.
+
 It also runs from **Actions → Accuracy eval** (needs an `OPENAI_API_KEY` repo secret).
 
 ## Insight engine
