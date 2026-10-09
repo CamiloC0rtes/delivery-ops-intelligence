@@ -6,6 +6,7 @@ Run: python app.py
 import json
 import logging
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -121,6 +122,7 @@ REGLAS:
 - Usa los datos proporcionados, no inventes cifras
 - Si no hay datos, explica qué filtros se aplicaron y sugiere alternativas
 - Sé específico con zonas, ciudades y números
+- Copia los nombres de zona y ciudad EXACTAMENTE como aparecen en los datos: "Los Cedros Norte" y "Los Cedros" son zonas distintas
 - NO incluyas JSON en tu respuesta
 - Responde siempre en español
 - Cuando el usuario pida evolución, tendencia o gráfico de una zona específica, responde con los datos disponibles Y agrega al final: 'Para ver el gráfico completo de 8 semanas, ve a la pestaña Analisis, selecciona el país y ciudad correspondiente.'
@@ -143,6 +145,15 @@ def get_session(session_id: str) -> dict:
     if session_id not in SESSIONS:
         SESSIONS[session_id] = {"history": [], "context": {}}
     return SESSIONS[session_id]
+
+_TOP_N_IN_TEXT = re.compile(r"\b(?:top|las|los|primeras|primeros)\s+(\d{1,2})\b|\b(\d{1,2})\s+zonas\b", re.I)
+
+
+def top_n_from_text(message: str) -> int | None:
+    """Deterministic backup: 'las 3 zonas', 'top 5' -> the number, if the model omitted it."""
+    m = _TOP_N_IN_TEXT.search(message)
+    return int(m.group(1) or m.group(2)) if m else None
+
 
 def extract_entities(message: str, prev_questions: list[str], client: OpenAI) -> dict:
     prev = ""
@@ -231,6 +242,8 @@ async def chat(req: ChatRequest):
     log.info("[ENTITIES] msg='%s' → %s", req.message[:60], json.dumps(entities, ensure_ascii=False))
 
     # Actualizar contexto acumulado con lógica smart
+    if not entities.get("top_n") and (n := top_n_from_text(req.message)):
+        entities["top_n"] = n
     is_new_topic = entities.pop("is_new_topic", not prev_questions)
 
     # Claves que SIEMPRE se resetean si la nueva pregunta no las menciona explícitamente

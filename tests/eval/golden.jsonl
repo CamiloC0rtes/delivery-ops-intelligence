@@ -2,7 +2,7 @@
 {"id": "top_order_growth", "question": "Top 5 zonas que más crecieron en pedidos", "expect": {"metric": "Orders", "top_n": 5, "sort_order": "desc"}, "mention_top": 3}
 {"id": "drops_in_country", "question": "¿Qué 3 zonas de Colombia cayeron más en órdenes?", "expect": {"metric": "Orders", "country": "CO", "top_n": 3, "sort_order": "asc"}, "mention_top": 2}
 {"id": "drops_in_city", "question": "Las 3 zonas de Medellin con mayor caída de órdenes", "expect": {"metric": "Orders", "city": "Medellin", "top_n": 3, "sort_order": "asc"}, "mention_top": 2}
-{"id": "wealthy_comparison", "question": "Compara Perfect Orders entre zonas Wealthy y Non Wealthy", "expect": {"intent": "comparison", "metric": "Perfect Orders"}, "mention_top": 0}
+{"id": "wealthy_comparison", "question": "Compara Perfect Orders entre zonas Wealthy y Non Wealthy", "expect": {"intent": "comparison", "metric": "Perfect Orders", "zone_type": "comparison"}, "mention_top": 0}
 {"id": "sustained_decline", "question": "¿Qué zonas tienen deterioro sostenido en Perfect Orders?", "expect": {"metric": "Perfect Orders", "concept": "deterioro sostenido"}, "mention_top": 1}
 {"id": "multivariable", "question": "Zonas con alta Lead Penetration pero bajo Perfect Orders", "expect": {"intent": "multivariable", "metric_high": "Lead Penetration", "metric_low": "Perfect Orders"}, "mention_top": 1}
 {"id": "correlation", "question": "¿Qué métricas están más correlacionadas entre sí?", "expect": {"intent": "correlation"}, "mention_top": 0}

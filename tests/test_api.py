@@ -84,3 +84,11 @@ def test_extraction_requests_json_mode_with_room(client):
     import inspect
     src = inspect.getsource(app_module.extract_entities)
     assert '"json_object"' in src and "max_tokens=400" in src
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Las 3 zonas de Medellin con mayor caída", 3), ("top 5 zonas", 5), ("dame 10 zonas", 10),
+    ("¿cómo va Bogota?", None), ("zonas con 20% de caída", None),
+])
+def test_top_n_from_text(text, expected):
+    assert app_module.top_n_from_text(text) == expected

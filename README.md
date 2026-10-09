@@ -74,7 +74,7 @@ DATA_FILE=path/to/your.xlsx python app.py  # run on your own data with the same 
 
 ```bash
 pip install -r requirements-dev.txt
-pytest          # 59 tests, LLM mocked — runs in CI on every push
+pytest          # 64 tests, LLM mocked — runs in CI on every push
 ```
 
 They cover the validation layer (garbage JSON, unknown values, clamping), query results against pandas, the generator's schema and planted patterns, every API endpoint, the chat flow with a fake LLM, and the eval's own scoring.
