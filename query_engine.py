@@ -134,6 +134,7 @@ def execute_query(
     # ── 2. Filtro por métrica ─────────────────────────────────
     if resolved_metric:
         df = df[df["METRIC"] == resolved_metric]
+    metric_scope = df  # every zone for this metric, before geographic/segment filters
 
     # ── 3. Filtros geográficos ────────────────────────────────
     def _norm(s):
@@ -198,44 +199,19 @@ def execute_query(
                 pass  # Si falla el query (columna ausente), continuar sin filtro
 
     # ── 6. Ranking / Top N ────────────────────────────────────
-    # Filtro mínimo de volumen: excluir zonas con volumen insignificante
-    # Solo aplica cuando ordenamos por L0W_VALUE, no por PCT_CHANGE_WOW
-    _sort_preview = _pick_sort_col(intent, concept)
-    if top_n and "L0W_VALUE" in df.columns and _sort_preview == "L0W_VALUE":
-        min_val = df["L0W_VALUE"].quantile(0.10)
-        if min_val > 0:
-            df_ranked = df[df["L0W_VALUE"] >= min_val]
-            if len(df_ranked) >= (top_n or 5):
-                df = df_ranked
-
-    # Cuando se buscan caídas/crecimiento, filtrar nulos en PCT_CHANGE_WOW
-    if top_n and _sort_preview == "PCT_CHANGE_WOW" and "PCT_CHANGE_WOW" in df.columns:
-        df = df.dropna(subset=["PCT_CHANGE_WOW"])
-        # Volumen mínimo absoluto para evitar zonas con 1-5 unidades
-        if "L0W_VALUE" in df.columns:
-            min_abs = df["L0W_VALUE"].quantile(0.05)
-            if min_abs > 0:
-                df_vol = df[df["L0W_VALUE"] >= min_abs]
-                if len(df_vol) >= (top_n or 5):
-                    df = df_vol
-
     if "mejor" in concept or "best" in concept:
         df = df.nlargest(top_n or 5, "L0W_VALUE")
     elif "peor" in concept or "worst" in concept:
         df = df.nsmallest(top_n or 5, "L0W_VALUE")
     elif top_n:
-        ascending = (sort_order == "asc")
-        # Si piden orden ascendente (caídas/peores), priorizar PCT_CHANGE_WOW
-        # Si piden orden descendente (crecimiento/mejores), priorizar L0W_VALUE o PCT_CHANGE_WOW
-        if "PCT_CHANGE_WOW" in df.columns:
-            # asc = mayores caídas, desc = mayor crecimiento → siempre PCT_CHANGE_WOW
-            sort_col = "PCT_CHANGE_WOW"
-        else:
-            sort_col = _pick_sort_col(intent, concept)
-        if sort_col not in df.columns:
-            sort_col = "L0W_VALUE"
-        df = (df.nsmallest(top_n, sort_col) if ascending
-              else df.nlargest(top_n, sort_col))
+        # asc = biggest drops, desc = biggest growth, by week-over-week change when available
+        sort_col = "PCT_CHANGE_WOW" if "PCT_CHANGE_WOW" in df.columns else "L0W_VALUE"
+        if sort_col == "PCT_CHANGE_WOW":
+            df = df.dropna(subset=["PCT_CHANGE_WOW"])
+            floor = _volume_floor(metric_scope, resolved_metric)
+            if floor is not None:
+                df = df[df["L0W_VALUE"] >= floor]
+        df = df.nsmallest(top_n, sort_col) if sort_order == "asc" else df.nlargest(top_n, sort_col)
 
     # ── 7. Columnas de salida ─────────────────────────────────
     cols   = _display_columns(df)
@@ -253,6 +229,22 @@ def execute_query(
 
 
 # ── Helpers ───────────────────────────────────────────────────
+
+VOLUME_FLOOR_QUANTILE = 0.05
+
+
+def _volume_floor(metric_scope: pd.DataFrame, metric: str | None) -> float | None:
+    """Minimum order volume for %-change rankings, so 3 -> 1 orders is not "the biggest drop".
+
+    Computed over ALL zones of the metric, never over the filtered subset: otherwise a zone
+    with a real -27% drop vanishes from the country ranking while showing in the global one.
+    Only applies to Orders; a volume floor makes no sense for rates.
+    """
+    if metric != ORDERS or metric_scope.empty:
+        return None
+    floor = float(metric_scope["L0W_VALUE"].quantile(VOLUME_FLOOR_QUANTILE))
+    return floor if floor > 0 else None
+
 
 def _pick_sort_col(intent: str, concept: str) -> str:
     combined = f"{intent} {concept}".lower()

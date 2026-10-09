@@ -7,10 +7,19 @@ def run(data, **ctx):
 
 def test_top_drops_match_pandas(data):
     df, _ = run(data, intent="ranking", metric="Orders", top_n=5, sort_order="asc")
-    o = data["orders_long"].dropna(subset=["PCT_CHANGE_WOW"])
+    o = data["orders_long"]
     # Business rule: tiny zones (bottom 5% by volume) are excluded so 3 -> 1 orders isn't "the biggest drop"
-    o = o[o.L0W_VALUE >= o.L0W_VALUE.quantile(0.05)]
+    o = o[o.L0W_VALUE >= o.L0W_VALUE.quantile(0.05)].dropna(subset=["PCT_CHANGE_WOW"])
     assert list(df.ZONE) == list(o.nsmallest(5, "PCT_CHANGE_WOW").ZONE)
+
+
+def test_narrowing_geography_never_hides_a_ranked_zone(data):
+    # Regression: the volume floor was computed on the filtered subset, so "Las Lomas Alto"
+    # (-26.8%) was in the global top drops but missing from Argentina's.
+    global_top, _ = run(data, metric="Orders", top_n=10, sort_order="asc")
+    for country, zones in global_top.groupby("COUNTRY").ZONE:
+        local, _ = run(data, metric="Orders", country=country, top_n=10, sort_order="asc")
+        assert set(zones) <= set(local.ZONE), country
 
 
 def test_country_filter(data):
