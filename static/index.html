@@ -4,105 +4,178 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Delivery Ops Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #16181d; --muted: #667085; --line: #e4e7ec;
-    --accent: #0f766e; --accent-soft: #e6f4f1; --bad: #c2410c; --good: #15803d; --warn: #a16207;
+    --pavement: #e9eeec;   /* page */
+    --panel: #ffffff;
+    --asphalt: #22313a;    /* ink + header band */
+    --asphalt-2: #2e3f49;
+    --muted: #5e6f73;
+    --line: #cfd8d6;
+    --lane: #f2b705;       /* road marking: lane line, focus, selection only */
+    --brake: #c8323c;      /* drops */
+    --sign: #1e7f5c;       /* growth */
+    --amber: #b7791f;      /* medium severity */
+    --on-asphalt: #f3f6f5;
+    --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --body: "Barlow", system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0e1116; --panel: #161b22; --text: #e6e8eb; --muted: #98a2b3; --line: #2a313c;
-            --accent: #2dd4bf; --accent-soft: #12302c; --bad: #fb923c; --good: #4ade80; --warn: #facc15; }
+    :root { --pavement: #141b1f; --panel: #1b252a; --muted: #9aaaae; --line: #2f3d44;
+            --asphalt: #e7eeec; --brake: #ef6b62; --sign: #4cc28f; --amber: #e0a63a; }
+    .band { --asphalt-band: #0f1518; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-  header h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
-  header .tag { font-size: 12px; color: var(--muted); }
-  nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
-  nav button { border: 0; background: none; color: var(--muted); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; }
-  nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; font: 16px/1.55 var(--body); background: var(--pavement); color: var(--asphalt);
+         font-variant-numeric: tabular-nums; }
+  :focus-visible { outline: 3px solid var(--lane); outline-offset: 2px; }
+
+  /* ---------- header band: the one bold element ---------- */
+  .band { background: var(--asphalt-band, #22313a); color: var(--on-asphalt); }
+  .band-inner { max-width: 1200px; margin: 0 auto; padding: 18px 20px 26px; }
+  .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { font: 600 20px/1 var(--cond); letter-spacing: .01em; }
+  nav { display: flex; gap: 2px; margin-left: auto; flex-wrap: wrap; }
+  nav button { font: 500 17px/1 var(--cond); color: #b9c6c9; background: none; border: 0;
+               padding: 9px 12px 7px; cursor: pointer; border-bottom: 3px solid transparent; }
+  nav button:hover { color: var(--on-asphalt); }
+  nav button[aria-selected="true"] { color: var(--on-asphalt); border-bottom-color: var(--lane); }
+  .headline { margin: 28px 0 0; font: 700 clamp(30px, 4.6vw, 54px)/1.02 var(--cond); max-width: 22ch; letter-spacing: -.005em; }
+  .headline .drop { color: #ff8a80; }
+  .subline { margin: 10px 0 0; color: #c3cfd2; font-size: 17px; max-width: 62ch; }
+  .lane { display: block; width: 100%; height: 6px; }
+  .lane line { stroke: var(--lane); stroke-width: 6; stroke-dasharray: 34 22; }
+  @media (prefers-reduced-motion: no-preference) {
+    .lane line { animation: paint 1.4s ease-out both; }
+    @keyframes paint { from { stroke-dashoffset: 1200; opacity: .2; } to { stroke-dashoffset: 0; opacity: 1; } }
+  }
+
+  /* ---------- layout ---------- */
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 56px; }
   .tab { display: none; } .tab.active { display: block; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
-  .kpi .v { font-size: 24px; font-weight: 650; } .kpi .l { color: var(--muted); font-size: 13px; }
-  #messages { height: 52vh; min-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
-  .msg { padding: 10px 14px; border-radius: 12px; max-width: 92%; white-space: pre-wrap; }
-  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
-  .msg.bot { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }
-  .msg .meta { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
-  form.ask { display: flex; gap: 8px; margin-top: 12px; }
-  input, select { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
-  form.ask input { flex: 1; min-width: 0; }
-  button.primary { border: 0; background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 8px; font: inherit; cursor: pointer; }
-  button.primary:disabled { opacity: .5; cursor: default; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
-  .chart-box { position: relative; height: 360px; }
-  .empty { color: var(--muted); text-align: center; padding: 60px 12px; }
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-  .insight { border-left: 4px solid var(--line); padding: 10px 12px; margin-bottom: 10px; background: var(--bg); border-radius: 0 8px 8px 0; }
-  .insight.high { border-color: var(--bad); } .insight.medium { border-color: var(--warn); } .insight.low { border-color: var(--good); }
-  .insight .head { font-weight: 600; } .insight .sub { font-size: 13px; color: var(--muted); }
-  .banner { background: var(--accent-soft); color: var(--text); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; display: none; }
-  a { color: var(--accent); }
+  .split { display: grid; gap: 20px; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+  @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
+  .panel-pad { padding: 18px; }
+  h2 { font: 600 22px/1.15 var(--cond); margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 14px; margin: 0; }
+  .banner { border-left: 6px solid var(--lane); background: var(--panel); padding: 12px 16px; margin-bottom: 20px; display: none; }
+
+  /* ---------- chat ---------- */
+  #messages { height: min(56vh, 560px); min-height: 300px; overflow-y: auto; padding: 18px;
+              display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 94%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; background: var(--asphalt-band, #22313a); color: var(--on-asphalt);
+              padding: 9px 14px; border-radius: 3px; }
+  .msg.bot { align-self: flex-start; border-left: 3px solid var(--line); padding: 2px 0 2px 14px; }
+  .msg.bot.fresh { border-left-color: var(--lane); }
+  .msg .meta { display: block; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .msg.pending { color: var(--muted); }
+  form.ask { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); }
+  input, select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px;
+                  background: var(--panel); color: var(--asphalt); min-width: 0; }
+  form.ask input { flex: 1; }
+  .btn { font: 600 17px/1 var(--cond); letter-spacing: .02em; border: 0; border-radius: 3px; cursor: pointer;
+         background: var(--asphalt-band, #22313a); color: var(--on-asphalt); padding: 11px 18px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 18px; }
+  .suggest button { font: inherit; font-size: 14px; color: var(--asphalt); background: none; cursor: pointer;
+                    border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; text-align: left; }
+  .suggest button:hover { border-color: var(--asphalt); }
+
+  .chart-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 18px 18px 0; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px; font-size: 14px; color: var(--muted); }
+  .legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
+  .chart-box { position: relative; height: 420px; padding: 8px 12px 14px; }
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
+
+  /* ---------- incident log ---------- */
+  .counts { display: flex; flex-wrap: wrap; gap: 28px; margin-bottom: 18px; }
+  .count b { display: block; font: 700 34px/1 var(--cond); }
+  .count span { color: var(--muted); font-size: 14px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  .log { list-style: none; margin: 0; padding: 0; }
+  .log li { display: grid; grid-template-columns: 6px minmax(0, 1fr) auto; gap: 14px; padding: 14px 18px 14px 0;
+            border-bottom: 1px solid var(--line); }
+  .log li:last-child { border-bottom: 0; }
+  .sev { border-radius: 0 3px 3px 0; }
+  .sev.high { background: var(--brake); } .sev.medium { background: var(--amber); } .sev.low { background: var(--sign); }
+  .log .where { font: 600 19px/1.2 var(--cond); }
+  .log .what { margin: 2px 0 0; }
+  .log .todo { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+  .log .tag { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .log-empty { padding: 40px 18px; color: var(--muted); text-align: center; }
+
+  a { color: inherit; }
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>Delivery Ops Intelligence</h1>
-    <div class="tag">Analítica en lenguaje natural sobre métricas operativas · datos sintéticos</div>
+<header class="band">
+  <div class="band-inner">
+    <div class="topbar">
+      <div class="brand">Delivery Ops Intelligence</div>
+      <nav role="tablist" aria-label="Secciones">
+        <button role="tab" aria-selected="true" data-tab="chat">Preguntar</button>
+        <button role="tab" aria-selected="false" data-tab="insights">Alertas</button>
+        <button role="tab" aria-selected="false" data-tab="zones">Zonas</button>
+        <button onclick="window.open('/api/executive-report')">Reporte ejecutivo</button>
+      </nav>
+    </div>
+    <h1 class="headline" id="headline">Cargando la semana…</h1>
+    <p class="subline" id="subline">Datos sintéticos de 108 zonas en 6 países, últimas 9 semanas.</p>
   </div>
-  <nav>
-    <button class="active" data-tab="chat">Asistente</button>
-    <button data-tab="insights">Insights</button>
-    <button data-tab="zones">Zonas</button>
-    <button onclick="window.open('/api/executive-report')">Reporte</button>
-  </nav>
+  <svg class="lane" viewBox="0 0 1200 6" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="3" x2="1200" y2="3"/></svg>
 </header>
 
 <main>
-  <div class="banner" id="banner">El chat está deshabilitado porque falta <code>OPENAI_API_KEY</code>. Los insights y las vistas por zona funcionan igual.</div>
+  <div class="banner" id="banner">El chat está apagado porque falta <code>OPENAI_API_KEY</code>. Las alertas y las tendencias por zona funcionan igual.</div>
 
-  <section class="tab active" id="tab-chat">
-    <div class="grid">
-      <div class="card">
-        <div id="messages"></div>
+  <section class="tab active" id="tab-chat" role="tabpanel">
+    <div class="split">
+      <div class="panel">
+        <div id="messages" aria-live="polite"></div>
         <form class="ask" id="ask">
-          <input id="q" autocomplete="off" placeholder="Ej: ¿Cuáles son las 5 zonas con mayor caída de órdenes?">
-          <button class="primary" id="send">Preguntar</button>
+          <label for="q" class="hint" style="position:absolute;left:-9999px">Pregunta</label>
+          <input id="q" autocomplete="off" placeholder="Pregunta por caídas, rankings o comparaciones">
+          <button class="btn" id="send">Preguntar</button>
         </form>
-        <div class="chips" id="examples"></div>
+        <div class="suggest" id="examples"></div>
       </div>
-      <div class="card">
-        <div class="chart-box"><canvas id="chat-chart"></canvas><div class="empty" id="chat-empty">El gráfico de cada respuesta aparece aquí.</div></div>
+      <div class="panel">
+        <div class="chart-head">
+          <h2 id="chart-title">Gráfico de la respuesta</h2>
+          <div class="legend"><span><i style="background:var(--brake)"></i>Caída</span><span><i style="background:var(--sign)"></i>Crecimiento</span></div>
+        </div>
+        <div class="chart-box"><canvas id="chat-chart"></canvas><div class="empty" id="chat-empty">Haz una pregunta y aquí verás las zonas que la responden.</div></div>
       </div>
     </div>
   </section>
 
-  <section class="tab" id="tab-insights">
-    <div class="kpis" id="kpis"></div>
-    <div class="card">
+  <section class="tab" id="tab-insights" role="tabpanel">
+    <div class="counts" id="counts"></div>
+    <div class="panel">
       <div class="filters">
-        <select id="f-sev"><option value="">Toda severidad</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select>
-        <select id="f-tipo"><option value="">Todo tipo</option><option value="anomaly">Anomalías</option><option value="trend">Tendencias</option><option value="benchmark">Benchmark</option><option value="opportunity">Oportunidades</option></select>
-        <select id="f-country"><option value="">Todos los países</option></select>
+        <select id="f-sev" aria-label="Severidad"><option value="">Cualquier severidad</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select>
+        <select id="f-tipo" aria-label="Tipo"><option value="">Cualquier tipo</option><option value="anomaly">Cambio brusco</option><option value="trend">Tendencia sostenida</option><option value="benchmark">Bajo su ciudad</option><option value="opportunity">Oportunidad</option></select>
+        <select id="f-country" aria-label="País"><option value="">Todos los países</option></select>
       </div>
-      <div id="insight-list"></div>
+      <ul class="log" id="insight-list"></ul>
     </div>
   </section>
 
-  <section class="tab" id="tab-zones">
-    <div class="card">
+  <section class="tab" id="tab-zones" role="tabpanel">
+    <div class="panel">
       <div class="filters">
-        <select id="z-country"></select>
-        <select id="z-city"></select>
-        <select id="z-metric"></select>
+        <select id="z-country" aria-label="País"></select>
+        <select id="z-city" aria-label="Ciudad"></select>
+        <select id="z-metric" aria-label="Métrica"></select>
       </div>
+      <div class="chart-head"><h2 id="zone-title">Tendencia por zona</h2><p class="hint">Las 6 zonas con más volumen, últimas 9 semanas</p></div>
       <div class="chart-box"><canvas id="zone-chart"></canvas></div>
     </div>
   </section>
@@ -113,11 +186,15 @@ const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 let sessionId = "";
 const charts = {};
+const COUNTRY = { CO: "Colombia", MX: "México", BR: "Brasil", AR: "Argentina", PE: "Perú", CL: "Chile" };
+const TIPO = { anomaly: "Cambio brusco", trend: "Tendencia sostenida", benchmark: "Bajo su ciudad", opportunity: "Oportunidad" };
+const SEV = { high: "alta", medium: "media", low: "baja" };
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function md(s) { return escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
+const md = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+const fmtPct = (v) => `${Math.abs(v).toLocaleString("es", { maximumFractionDigits: 0 })} %`;
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -125,13 +202,30 @@ async function api(path, opts) {
   return r.json();
 }
 
+Chart.defaults.font.family = "Barlow, system-ui, sans-serif";
+Chart.defaults.font.size = 13;
+
 // ---------- tabs ----------
-document.querySelectorAll("nav button[data-tab]").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll("nav button[data-tab]").forEach((x) => x.classList.toggle("active", x === b));
+document.querySelectorAll("nav [data-tab]").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav [data-tab]").forEach((x) => x.setAttribute("aria-selected", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + b.dataset.tab));
   if (b.dataset.tab === "insights" && !$("insight-list").childElementCount) loadInsights();
   if (b.dataset.tab === "zones" && !charts.zone) loadZone();
 }));
+
+// ---------- headline: what happened this week ----------
+async function loadHeadline(summary) {
+  const r = await api("/api/insights?tipo=anomaly&severity=high&limit=100");
+  const worst = r.insights.filter((i) => i.metric === "Orders" && i.evidence_value < 0)
+                          .sort((a, b) => a.evidence_value - b.evidence_value)[0];
+  if (worst) {
+    $("headline").innerHTML = `${escapeHtml(worst.zone)}, ${escapeHtml(worst.city)}, perdió <span class="drop">${fmtPct(worst.evidence_value)}</span> de sus pedidos esta semana`;
+  } else {
+    $("headline").textContent = "Ninguna zona tuvo una caída brusca de pedidos esta semana";
+  }
+  const high = summary.by_severity.high || 0;
+  $("subline").textContent = `${high} alertas de severidad alta en ${Object.keys(summary.by_country).filter((c) => c !== "GLOBAL").length} países. Pregunta por cualquier zona, métrica o comparación.`;
+}
 
 // ---------- chat ----------
 const EXAMPLES = [
@@ -142,14 +236,15 @@ const EXAMPLES = [
 ];
 EXAMPLES.forEach((e) => {
   const c = document.createElement("button");
-  c.className = "chip"; c.type = "button"; c.textContent = e;
+  c.type = "button"; c.textContent = e;
   c.onclick = () => { $("q").value = e; $("ask").requestSubmit(); };
   $("examples").appendChild(c);
 });
 
 function addMsg(text, who, meta) {
+  document.querySelectorAll(".msg.bot.fresh").forEach((m) => m.classList.remove("fresh"));
   const d = document.createElement("div");
-  d.className = "msg " + who;
+  d.className = "msg " + who + (who === "bot" ? " fresh" : "");
   d.innerHTML = who === "bot" ? md(text) : escapeHtml(text);
   if (meta) { const m = document.createElement("span"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
   $("messages").appendChild(d);
@@ -163,63 +258,71 @@ $("ask").addEventListener("submit", async (ev) => {
   if (!q) return;
   $("q").value = ""; $("send").disabled = true;
   addMsg(q, "user");
-  const pending = addMsg("Analizando…", "bot");
+  const pending = addMsg("Consultando los datos…", "bot");
+  pending.classList.add("pending");
   try {
     const r = await api("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify({ message: q, session_id: sessionId }) });
     sessionId = r.session_id;
     pending.remove();
-    addMsg(r.answer, "bot", `${r.rows_found} registros consultados`);
+    addMsg(r.answer, "bot", r.rows_found === 1 ? "Basado en 1 registro" : `Basado en ${r.rows_found} registros`);
     drawChatChart(r.chart);
   } catch (e) {
     pending.remove();
-    addMsg("No pude responder: " + e.message, "bot");
-  } finally { $("send").disabled = false; }
+    addMsg("No se pudo responder: " + e.message + ". Intenta reformular la pregunta.", "bot");
+  } finally { $("send").disabled = false; $("q").focus(); }
 });
+
+function axisStyle() {
+  return { ticks: { color: css("--muted") }, grid: { color: css("--line") }, border: { color: css("--line") } };
+}
 
 function drawChatChart(chart) {
   charts.chat?.destroy();
-  $("chat-empty").style.display = chart ? "none" : "block";
-  if (!chart) return;
+  $("chat-empty").style.display = chart ? "none" : "grid";
+  if (!chart) { $("chart-title").textContent = "Esta respuesta no tiene gráfico"; return; }
+  $("chart-title").textContent = chart.title.replace(" · ", ": ");
   const ds = chart.datasets[0];
   charts.chat = new Chart($("chat-chart"), {
     type: "bar",
-    data: { labels: chart.labels, datasets: [{ label: ds.label, data: ds.data,
-      backgroundColor: ds.data.map((v) => (v < 0 ? css("--bad") : css("--accent"))) }] },
-    options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false },
-      title: { display: true, text: chart.title, color: css("--text") } },
-      scales: { x: { ticks: { color: css("--muted") }, grid: { color: css("--line") } },
-                y: { ticks: { color: css("--text") }, grid: { display: false } } } },
+    data: { labels: chart.labels, datasets: [{ label: ds.label, data: ds.data, borderRadius: 2, maxBarThickness: 26,
+      backgroundColor: ds.data.map((v) => (v < 0 ? css("--brake") : css("--sign"))) }] },
+    options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: axisStyle(), y: { ...axisStyle(), grid: { display: false }, ticks: { color: css("--asphalt") } } } },
   });
 }
 
-// ---------- insights ----------
-const SEV = { high: "Alta", medium: "Media", low: "Baja" };
+// ---------- alerts (incident log) ----------
 async function loadInsights() {
-  const p = new URLSearchParams({ limit: 30 });
+  const p = new URLSearchParams({ limit: 40 });
   if ($("f-sev").value) p.set("severity", $("f-sev").value);
   if ($("f-tipo").value) p.set("tipo", $("f-tipo").value);
   if ($("f-country").value) p.set("country", $("f-country").value);
   const r = await api("/api/insights?" + p);
-  $("insight-list").innerHTML = r.insights.length ? "" : '<div class="empty">Sin insights para estos filtros.</div>';
+  const list = $("insight-list");
+  list.innerHTML = "";
+  if (!r.insights.length) {
+    list.innerHTML = '<li class="log-empty">No hay alertas con estos filtros. Prueba con otra severidad o país.</li>';
+    return;
+  }
   r.insights.forEach((i) => {
-    const d = document.createElement("div");
-    d.className = "insight " + i.severity;
-    d.innerHTML = `<div class="head">${escapeHtml(i.zone)} · ${escapeHtml(i.city)} (${escapeHtml(i.country)})</div>
-      <div class="sub">${escapeHtml(i.metric)} · ${i.tipo} · severidad ${SEV[i.severity] || i.severity}</div>
-      <div>${escapeHtml(i.finding)}</div><div class="sub">→ ${escapeHtml(i.recommendation)}</div>`;
-    $("insight-list").appendChild(d);
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="sev ${i.severity}" aria-hidden="true"></span>
+      <div><div class="where">${escapeHtml(i.zone)}, ${escapeHtml(i.city)}</div>
+        <p class="what">${escapeHtml(i.finding)}</p><p class="todo">${escapeHtml(i.recommendation)}</p></div>
+      <span class="tag">${TIPO[i.tipo] || i.tipo}<br>severidad ${SEV[i.severity] || i.severity}<br>${COUNTRY[i.country] || escapeHtml(i.country)}</span>`;
+    list.appendChild(li);
   });
 }
-async function loadKpis() {
-  const s = await api("/api/insights/summary");
-  const k = [["Insights totales", s.total], ["Severidad alta", s.by_severity.high || 0],
-             ["Anomalías", s.by_type.anomaly || 0], ["Oportunidades", s.by_type.opportunity || 0]];
-  $("kpis").innerHTML = k.map(([l, v]) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+function renderCounts(s) {
+  const items = [[s.by_severity.high || 0, "de severidad alta"], [s.by_type.anomaly || 0, "cambios bruscos"],
+                 [s.by_type.trend || 0, "tendencias sostenidas"], [s.by_type.opportunity || 0, "oportunidades"]];
+  $("counts").innerHTML = items.map(([v, l]) => `<div class="count"><b>${v}</b><span>${l}</span></div>`).join("");
 }
 ["f-sev", "f-tipo", "f-country"].forEach((id) => $(id).addEventListener("change", loadInsights));
 
 // ---------- zones ----------
+const ROUTES = ["#1f6fb2", "#c8323c", "#1e7f5c", "#b7791f", "#6b4fa3", "#3a4a50"];
 async function loadCities() {
   const r = await api("/api/cities?country=" + $("z-country").value);
   $("z-city").innerHTML = r.cities.map((c) => `<option>${escapeHtml(c)}</option>`).join("");
@@ -228,15 +331,15 @@ async function loadZone() {
   const p = new URLSearchParams({ country: $("z-country").value, city: $("z-city").value, metric: $("z-metric").value, top_n: 6 });
   const r = await api("/api/analysis/timeseries-multi?" + p);
   charts.zone?.destroy();
-  const palette = ["#0f766e", "#c2410c", "#1d4ed8", "#a16207", "#7c3aed", "#be123c"];
+  $("zone-title").textContent = `${r.metric} en ${r.city}`;
+  const labels = (r.labels || []).map((l) => (l === "L0W" ? "Esta semana" : `Hace ${l.slice(1, -1)} sem.`));
   charts.zone = new Chart($("zone-chart"), {
     type: "line",
-    data: { labels: r.labels, datasets: (r.series || []).map((s, i) => ({ label: s.zone, data: s.values,
-      borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], tension: 0.25 })) },
-    options: { maintainAspectRatio: false, plugins: { legend: { labels: { color: css("--text") } },
-      title: { display: true, text: `${r.metric} · ${r.city} (últimas 9 semanas)`, color: css("--text") } },
-      scales: { x: { ticks: { color: css("--muted") }, grid: { color: css("--line") } },
-                y: { ticks: { color: css("--muted") }, grid: { color: css("--line") } } } },
+    data: { labels, datasets: (r.series || []).map((s, i) => ({ label: s.zone, data: s.values, borderWidth: 2.5,
+      borderColor: ROUTES[i % ROUTES.length], backgroundColor: ROUTES[i % ROUTES.length], pointRadius: 2, tension: 0.2 })) },
+    options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "bottom", labels: { color: css("--asphalt"), boxWidth: 12 } } },
+      scales: { x: axisStyle(), y: axisStyle() } },
   });
 }
 $("z-country").addEventListener("change", async () => { await loadCities(); loadZone(); });
@@ -244,16 +347,18 @@ $("z-country").addEventListener("change", async () => { await loadCities(); load
 
 // ---------- boot ----------
 (async () => {
-  const [health, filters] = await Promise.all([api("/health"), api("/api/filters")]);
+  const [health, filters, summary] = await Promise.all([api("/health"), api("/api/filters"), api("/api/insights/summary")]);
   if (!health.chat_enabled) { $("banner").style.display = "block"; $("send").disabled = true; }
-  addMsg("Hola. Pregúntame por rankings, caídas, comparaciones o tendencias de las zonas. Cada respuesta usa solo los datos consultados.", "bot");
-  const opts = (xs) => xs.map((x) => `<option>${escapeHtml(x)}</option>`).join("");
-  $("f-country").innerHTML += opts(filters.countries);
-  $("z-country").innerHTML = opts(filters.countries);
+  addMsg("Pregunta en lenguaje natural. Cada respuesta se construye solo con las filas que devuelve la consulta, y el gráfico muestra esas mismas zonas.", "bot");
+  const opts = (xs, names) => xs.map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(names?.[x] || x)}</option>`).join("");
+  $("f-country").innerHTML += opts(filters.countries, COUNTRY);
+  $("z-country").innerHTML = opts(filters.countries, COUNTRY);
+  $("z-country").value = filters.countries.includes("CO") ? "CO" : filters.countries[0];
   $("z-metric").innerHTML = opts(filters.metrics);
   $("z-metric").value = "Orders";
+  renderCounts(summary);
+  loadHeadline(summary);
   await loadCities();
-  loadKpis();
 })();
 </script>
 </body>
