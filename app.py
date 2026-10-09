@@ -91,13 +91,22 @@ conceptos solo si el usuario los dice literalmente: "zonas problematicas",
 Si el usuario pregunta por "alto X pero bajo Y" o "X alto y Y bajo" o "tienen X pero no Y":
   intent="multivariable", metric_high=metrica alta, metric_low=metrica baja, metric=null
   IMPORTANTE: multivariable SOLO cuando hay DOS metricas en conflicto. "zonas que mas crecen" = ranking, NO multivariable.
+Si pide COMPARAR zonas Wealthy y Non Wealthy (o "ricas vs no ricas"):
+  intent="comparison", zone_type="Wealthy vs Non Wealthy", metric=la metrica mencionada. NO es multivariable.
 Si pregunta por correlacion entre metricas: intent="correlation"
 "crecimiento en ordenes", "mas crecen", "mayor crecimiento" = intent:"ranking", metric:"Orders", sort_order:"desc"
 metric SIEMPRE string o null, NUNCA array.
 
-is_new_topic=true si es pregunta nueva. false si es seguimiento ("y en X?", "esa zona?")
+PAIS vs CIUDAD: si el usuario nombra solo un país ("en Argentina"), usa country y deja city=null.
+NUNCA completes una ciudad, zona, prioridad o concepto que el usuario no mencionó.
+"zonas High Priority" -> priority="High Priority"; "peor/menor X, top N" -> sort_order="asc", top_n=N.
 
-JSON de salida:
+is_new_topic=true si es pregunta nueva. false si es seguimiento ("y en X?", "esa zona?").
+En un seguimiento, devuelve SOLO lo que cambia (p. ej. el nuevo país); el resto se conserva del contexto.
+
+Omite las claves cuyo valor sea null. Devuelve JSON compacto en una sola línea.
+
+Claves posibles (ejemplo completo):
 {{"intent":"ranking|trend|comparison|anomaly|summary|filter|multivariable|correlation","metric":null,"metric_high":null,"metric_low":null,"city":null,"country":null,"zone":null,"concept":null,"top_n":null,"sort_order":"desc","zone_type":null,"priority":null,"is_new_topic":true}}
 """.format(
     COUNTRIES=", ".join(f"{c} ({v['name']})" for c, v in COUNTRIES.items()),
@@ -141,16 +150,21 @@ def extract_entities(message: str, prev_questions: list[str], client: OpenAI) ->
         prev = "Preguntas anteriores:\n" + "\n".join(prev_questions[-3:]) + "\n\n"
     try:
         resp = client.chat.completions.create(
-            model=MODEL, max_tokens=150, temperature=0,
+            model=MODEL, max_tokens=400, temperature=0,
+            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": EXTRACTION_PROMPT},
                 {"role": "user",   "content": f"{prev}Mensaje: {message}"},
             ],
         )
-        return parse_llm_json(resp.choices[0].message.content).model_dump()
+        choice = resp.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            log.warning("Entity extraction truncated by max_tokens: %r", choice.message.content)
+        # Only keys the model actually sent: defaults must not overwrite a follow-up's context
+        return parse_llm_json(choice.message.content).model_dump(exclude_unset=True)
     except Exception as e:
         log.warning("Entity extraction failed: %s", e)
-        return parse_llm_json("").model_dump()
+        return {"intent": "summary"}
 
 def df_to_text(df: pd.DataFrame, max_rows: int = 20) -> str:
     if df.empty:
@@ -217,7 +231,7 @@ async def chat(req: ChatRequest):
     log.info("[ENTITIES] msg='%s' → %s", req.message[:60], json.dumps(entities, ensure_ascii=False))
 
     # Actualizar contexto acumulado con lógica smart
-    is_new_topic = entities.pop("is_new_topic", False)
+    is_new_topic = entities.pop("is_new_topic", not prev_questions)
 
     # Claves que SIEMPRE se resetean si la nueva pregunta no las menciona explícitamente
     VOLATILE_KEYS = ("zone", "city", "concept", "zone_type", "priority")

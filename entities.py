@@ -132,5 +132,5 @@ def parse_llm_json(raw: str) -> Entities:
         if not isinstance(data, dict):
             raise ValueError("not an object")
     except (ValueError, json.JSONDecodeError):
-        return Entities()
+        return Entities(intent="summary")
     return Entities(**{k: v for k, v in data.items() if k in Entities.model_fields})

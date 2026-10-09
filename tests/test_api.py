@@ -12,6 +12,7 @@ def client():
     fake = FakeLLM({
         "caída de órdenes": json.dumps({"intent": "ranking", "metric": "Orders", "top_n": 5, "sort_order": "asc"}),
         "basura": "esto no es json",
+        "Argentina": json.dumps({"country": "Argentina", "is_new_topic": False}),
     })
     app_module.DATA["client"] = fake
     with TestClient(app_module.app) as c:
@@ -64,3 +65,22 @@ def test_chat_without_key_returns_503():
         assert c.post("/api/chat", json={"message": "hola"}).status_code == 503
         assert c.get("/health").json()["chat_enabled"] is False
     app_module.DATA.pop("client", None)
+
+
+def test_follow_up_only_changes_what_the_model_sent(client):
+    c, _ = client
+    first = c.post("/api/chat", json={"message": "Top 5 zonas con mayor caída de órdenes"}).json()
+    r = c.post("/api/chat", json={"message": "¿Y en Argentina?", "session_id": first["session_id"]}).json()
+    ctx = r["context"]
+    assert ctx["country"] == "AR"
+    assert (ctx["metric"], ctx["top_n"], ctx["sort_order"]) == ("Orders", 5, "asc")  # kept, not reset to defaults
+    assert "city" not in ctx
+
+
+def test_extraction_requests_json_mode_with_room(client):
+    c, fake = client
+    c.post("/api/chat", json={"message": "caída de órdenes"})
+    # FakeLLM records messages only; check the call contract through app code instead
+    import inspect
+    src = inspect.getsource(app_module.extract_entities)
+    assert '"json_object"' in src and "max_tokens=400" in src

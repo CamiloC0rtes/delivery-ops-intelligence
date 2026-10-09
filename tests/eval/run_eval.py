@@ -63,6 +63,11 @@ def score_case(case: dict, client: TestClient, data: dict, all_zones: set[str]) 
         if not ok:
             failures.append(f"extraction {key}: want {want!r}, got {got!r}")
 
+    # Filters the user never asked for (e.g. a city when only a country was named) are errors too
+    for key in ("city", "zone", "concept", "priority", "zone_type", "country", "metric_high", "metric_low"):
+        if key not in case["expect"] and ctx.get(key):
+            failures.append(f"extraction {key}: unexpected {ctx[key]!r}")
+
     truth = ground_truth(case["expect"], data)
     truth_zones = list(truth["ZONE"]) if "ZONE" in truth.columns else []
     for zone in truth_zones[: case.get("mention_top", 0)]:
@@ -80,7 +85,7 @@ def score_case(case: dict, client: TestClient, data: dict, all_zones: set[str]) 
         failures.append(f"zones not in result: {fabricated}")
 
     return {"id": case["id"], "passed": not failures, "failures": failures,
-            "latency_s": round(latency, 2), "answer": answer}
+            "latency_s": round(latency, 2), "context": ctx, "answer": answer}
 
 
 def write_report(results, out: Path):
@@ -95,7 +100,8 @@ def write_report(results, out: Path):
     if failed:
         lines += ["", "## Failed answers", ""]
         for r in failed:
-            lines += [f"**{r['id']}**", "", "> " + r["answer"].replace("\n", " ")[:700], ""]
+            lines += [f"**{r['id']}** — extracted: `{json.dumps(r['context'], ensure_ascii=False)}`", "",
+                      "> " + r["answer"].replace("\n", " ")[:500], ""]
     (out / "eval_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out / "eval_report.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     return passed / len(results), p95
