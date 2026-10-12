@@ -236,3 +236,17 @@ def test_follow_up_without_ranking_words_ignores_model_rank_by(client):
     s = c.post("/api/chat", json={"message": "Top 5 zonas con mayor caída de órdenes"}).json()["session_id"]
     r = c.post("/api/chat", json={"message": "¿y en Perfect Orders?", "session_id": s}).json()
     assert r["context"]["rank_by"] == "change"
+
+
+def test_unsupported_kpi_and_city_backstops_when_extractor_drops_them(client):
+    # Regression (eval run 7): extractor returned {"intent": "summary"} for the NPS question
+    c, fake = client
+    fake.extraction["satisfacción"] = json.dumps({"intent": "summary"})
+    r = c.post("/api/chat", json={"message": "¿Cómo va la satisfacción en Bogota?"}).json()
+    assert "«satisfacción»" in r["answer"] and "Perfect Orders" in r["answer"] and r["rows_found"] == 0
+
+
+@pytest.mark.parametrize("text,city", [("zonas de Bogotá", "Bogota"), ("en sao paulo", "Sao Paulo"),
+                                        ("Bogota vs Cali", None), ("en Narnia", None)])
+def test_city_in_text(text, city):
+    assert app_module.city_in_text(text) == city

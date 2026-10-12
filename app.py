@@ -398,6 +398,25 @@ _CHANGE_WORDS = re.compile(
 )
 
 
+# Common KPIs people ask for that this dataset does not have: answer "no data for X", don't dump everything
+_UNSUPPORTED_KPIS = re.compile(
+    r"\b(NPS|CSAT|churn|retenci[oó]n|ticket promedio|AOV|tiempo de entrega|ETA|cancelaci[oó]n(?:es)?|"
+    r"rating|calificaci[oó]n|satisfacci[oó]n)\b",
+    re.I,
+)
+
+
+def unsupported_kpi_in_text(message: str) -> str | None:
+    m = _UNSUPPORTED_KPIS.search(message)
+    return m.group(1) if m else None
+
+
+def city_in_text(message: str) -> str | None:
+    text = _norm_text(message)
+    hits = [c for c in all_cities() if re.search(rf"\b{re.escape(_norm_text(c))}\b", text)]
+    return max(hits, key=len) if len(hits) == 1 else None
+
+
 _OPERATIONS_WORDS = re.compile(
     r"\bzonas?\b|pedido|[oó]rden|ordenes|m[eé]trica|kpi|promedio|ranking|ca[ií]da|crec|conversi|"
     r"perfect|ganancia|profit|adopci|penetraci|markdown|surtido|assortment|\bnps\b|ventas?\b|"
@@ -455,6 +474,11 @@ async def chat(req: ChatRequest):
     if entities.get("intent") == "out_of_scope":
         return finish(session, session_id, message, OUT_OF_SCOPE_ANSWER)
 
+    # Deterministic backstops for what the extractor drops (seen with "¿NPS de las zonas de Bogotá?")
+    if not any(entities.get(k) for k in ("city", "zone", "country")) and (city := city_in_text(message)):
+        entities["city"] = city
+    if (kpi := unsupported_kpi_in_text(message)) and not entities.get("metric"):
+        entities.setdefault("unresolved", {})["metric"] = kpi
     missing = unresolved_filters(entities, DATA)
     if missing:
         return finish(session, session_id, message, not_found_answer(missing))
