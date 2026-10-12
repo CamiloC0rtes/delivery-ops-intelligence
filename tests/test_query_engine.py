@@ -37,9 +37,36 @@ def test_sustained_decline_concept(data):
     assert len(df) > 0 and df.IS_DECLINING_3W.all()
 
 
-def test_unknown_metric_and_city_do_not_crash(data):
+def test_unknown_city_filters_to_nothing_instead_of_everything(data):
     df, desc = run(data, metric="bananas", city="Gotham", top_n=3)
-    assert len(df) == 3 and "registros" in desc
+    assert df.empty and "registros" in desc
+
+
+def test_ranking_without_number_is_sorted_and_capped(data):
+    # Regression: "¿cuál es la zona con más pedidos?" returned rows unsorted and the LLM picked from 20 at random
+    df, _ = run(data, intent="ranking", metric="Orders", rank_by="value")
+    assert len(df) == 5
+    assert df.ZONE.iloc[0] == data["orders_long"].nlargest(1, "L0W_VALUE").ZONE.iloc[0]
+
+
+def test_rank_by_value_vs_change(data):
+    by_value, _ = run(data, metric="Orders", top_n=1, rank_by="value")
+    by_change, _ = run(data, metric="Orders", top_n=1, rank_by="change")
+    o = data["orders_long"]
+    assert by_value.ZONE.iloc[0] == o.nlargest(1, "L0W_VALUE").ZONE.iloc[0]
+    assert by_change.ZONE.iloc[0] == o.nlargest(1, "PCT_CHANGE_WOW").ZONE.iloc[0]
+
+
+def test_exact_zone_name_wins_over_substring(data):
+    df, _ = run(data, metric="Orders", zone="Los Cedros")
+    assert list(df.ZONE) == ["Los Cedros"]
+    partial, _ = run(data, metric="Orders", zone="cedros")
+    assert len(partial) > 1
+
+
+def test_pct_change_ignores_near_zero_bases(data):
+    for key in ("metrics_long", "orders_long"):
+        assert data[key].PCT_CHANGE_WOW.abs().max() < 1000
 
 
 def test_multivariable_and_correlation(data):

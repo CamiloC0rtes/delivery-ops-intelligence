@@ -37,7 +37,7 @@
 
   /* ---------- header band: the one bold element ---------- */
   .band { background: var(--asphalt-band, #22313a); color: var(--on-asphalt); }
-  .band-inner { max-width: 1200px; margin: 0 auto; padding: 18px 20px 26px; }
+  .band-inner { max-width: 1200px; margin: 0 auto; padding: 16px 20px 20px; }
   .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .brand { font: 600 20px/1 var(--cond); letter-spacing: .01em; }
   nav { display: flex; gap: 2px; margin-left: auto; flex-wrap: wrap; }
@@ -45,7 +45,7 @@
                padding: 9px 12px 7px; cursor: pointer; border-bottom: 3px solid transparent; }
   nav button:hover { color: var(--on-asphalt); }
   nav button[aria-selected="true"] { color: var(--on-asphalt); border-bottom-color: var(--lane); }
-  .headline { margin: 28px 0 0; font: 700 clamp(30px, 4.6vw, 54px)/1.02 var(--cond); max-width: 22ch; letter-spacing: -.005em; }
+  .headline { margin: 20px 0 0; font: 700 clamp(28px, 3.6vw, 46px)/1.04 var(--cond); max-width: 30ch; letter-spacing: -.005em; }
   .headline .drop { color: #ff8a80; }
   .subline { margin: 10px 0 0; color: #c3cfd2; font-size: 17px; max-width: 62ch; }
   .lane { display: block; width: 100%; height: 6px; }
@@ -60,6 +60,12 @@
   .tab { display: none; } .tab.active { display: block; }
   .split { display: grid; gap: 20px; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
   @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 600px) {
+    .band-inner { padding: 12px 16px 16px; } main { padding: 16px 16px 40px; }
+    .headline { margin-top: 12px; } .subline { font-size: 15px; }
+    #messages { height: 46vh; } .chart-box { height: 340px; }
+    nav { margin-left: 0; width: 100%; } nav button { padding: 8px 10px 6px; }
+  }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
   .panel-pad { padding: 18px; }
   h2 { font: 600 22px/1.15 var(--cond); margin: 0 0 4px; }
@@ -67,7 +73,7 @@
   .banner { border-left: 6px solid var(--lane); background: var(--panel); padding: 12px 16px; margin-bottom: 20px; display: none; }
 
   /* ---------- chat ---------- */
-  #messages { height: min(56vh, 560px); min-height: 300px; overflow-y: auto; padding: 18px;
+  #messages { height: clamp(220px, calc(100vh - 470px), 560px); overflow-y: auto; padding: 18px;
               display: flex; flex-direction: column; gap: 14px; }
   .msg { max-width: 94%; white-space: pre-wrap; overflow-wrap: anywhere; }
   .msg.user { align-self: flex-end; background: var(--asphalt-band, #22313a); color: var(--on-asphalt);
@@ -141,7 +147,7 @@
         <div id="messages" aria-live="polite"></div>
         <form class="ask" id="ask">
           <label for="q" class="hint" style="position:absolute;left:-9999px">Pregunta</label>
-          <input id="q" autocomplete="off" placeholder="Pregunta por caídas, rankings o comparaciones">
+          <input id="q" autocomplete="off" maxlength="500" placeholder="Pregunta por caídas, rankings o comparaciones">
           <button class="btn" id="send">Preguntar</button>
         </form>
         <div class="suggest" id="examples"></div>
@@ -198,7 +204,12 @@ const fmtPct = (v) => `${Math.abs(v).toLocaleString("es", { maximumFractionDigit
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  if (!r.ok) {
+    const d = (await r.json().catch(() => ({}))).detail;
+    const msg = Array.isArray(d) ? "la pregunta debe tener entre 1 y 500 caracteres"
+              : (typeof d === "object" && d ? d.message : d);
+    throw new Error(msg || r.statusText);
+  }
   return r.json();
 }
 

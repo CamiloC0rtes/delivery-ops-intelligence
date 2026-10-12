@@ -2,9 +2,10 @@
 entities.py
 Validates what the LLM extracts before it touches the data.
 
-The LLM returns free-form JSON. Anything that doesn't map to the catalog is dropped
-(not guessed), numbers are coerced and clamped, and enums fall back to safe defaults.
-The query engine only ever sees a clean `Entities` object.
+The LLM returns free-form JSON. Anything that doesn't map to the catalog is never guessed:
+it is recorded in `unresolved` so the app can tell the user "I have no data for X" instead
+of silently dropping the filter and answering about everything. Numbers are coerced and
+clamped, and enums fall back to safe defaults.
 """
 
 import json
@@ -15,7 +16,8 @@ from pydantic import BaseModel, field_validator
 
 from catalog import CONCEPTS, INTENTS, PRIORITIES, resolve_country, resolve_metric
 
-Intent = Literal["ranking", "trend", "comparison", "anomaly", "summary", "filter", "multivariable", "correlation"]
+Intent = Literal["ranking", "trend", "comparison", "anomaly", "summary", "filter", "multivariable", "correlation",
+                 "out_of_scope"]
 assert set(INTENTS) == set(Intent.__args__)
 
 MAX_TOP_N = 50
@@ -33,9 +35,11 @@ class Entities(BaseModel):
     concept: str | None = None
     top_n: int | None = None
     sort_order: Literal["asc", "desc"] = "desc"
+    rank_by: Literal["value", "change"] | None = None  # rank by current level or by week-over-week change
     zone_type: Literal["Wealthy", "Non Wealthy", "comparison"] | None = None
     priority: str | None = None
     is_new_topic: bool = True
+    unresolved: dict[str, str] = {}  # field -> raw value that did not map to the catalog
 
     @field_validator("intent", mode="before")
     @classmethod
@@ -85,6 +89,11 @@ class Entities(BaseModel):
             return None
         return max(1, min(n, MAX_TOP_N)) if n > 0 else None
 
+    @field_validator("rank_by", mode="before")
+    @classmethod
+    def _rank_by(cls, v):
+        return v if v in ("value", "change") else None
+
     @field_validator("sort_order", mode="before")
     @classmethod
     def _sort(cls, v):
@@ -120,7 +129,8 @@ class Entities(BaseModel):
 
     def as_context(self) -> dict:
         """Dict form for the session context (None values dropped)."""
-        return {k: v for k, v in self.model_dump().items() if v is not None and k != "is_new_topic"}
+        return {k: v for k, v in self.model_dump().items()
+                if v is not None and k not in ("is_new_topic", "unresolved")}
 
 
 def parse_llm_json(raw: str) -> Entities:
@@ -133,4 +143,13 @@ def parse_llm_json(raw: str) -> Entities:
             raise ValueError("not an object")
     except (ValueError, json.JSONDecodeError):
         return Entities(intent="summary")
-    return Entities(**{k: v for k, v in data.items() if k in Entities.model_fields})
+    fields = {k: v for k, v in data.items() if k in Entities.model_fields and k != "unresolved"}
+    entities = Entities(**fields)
+    unresolved = {
+        k: str(fields[k]).strip() for k in ("metric", "metric_high", "metric_low", "country")
+        if fields.get(k) not in (None, "", []) and getattr(entities, k) is None
+        and not (isinstance(fields[k], list) and getattr(entities, k))
+    }
+    if unresolved:
+        entities.unresolved = unresolved
+    return entities

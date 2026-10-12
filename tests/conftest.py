@@ -37,7 +37,7 @@ class FakeLLM:
         self.calls.append(messages)
         system, user = messages[0]["content"], messages[-1]["content"]
         if system.startswith("Eres un extractor"):
-            current = user.split("Mensaje:", 1)[-1]  # ignore "Preguntas anteriores"
+            current = user.split("Mensaje:", 1)[-1]  # ignore "Preguntas anteriores" / "Filtros vigentes"
             content = next((v for k, v in self.extraction.items() if k in current), "{}")
         else:
             content = "**Resultado**: " + user.split("Datos:\n", 1)[-1]

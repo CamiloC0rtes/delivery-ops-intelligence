@@ -115,6 +115,7 @@ def execute_query(
     priority   = entities.get("priority") or ""
     intent     = entities.get("intent") or ""
     sort_order = entities.get("sort_order") or "desc"
+    rank_by    = entities.get("rank_by")
     top_n_raw  = entities.get("top_n")
     top_n      = int(top_n_raw) if top_n_raw else None
 
@@ -137,25 +138,20 @@ def execute_query(
     metric_scope = df  # every zone for this metric, before geographic/segment filters
 
     # ── 3. Filtros geográficos ────────────────────────────────
-    def _norm(s):
-        return unicodedata.normalize("NFD", str(s)).encode("ascii","ignore").decode().lower()
-
     if city:
         df_by_city = df[df["CITY"].apply(_norm) == _norm(city)]
-        if not df_by_city.empty:
-            df = df_by_city
-        else:
-            # Fallback: city podria ser una zona (ej: Chapinero -> zona de Bogota)
-            df_by_zone = df[df["ZONE"].apply(_norm).str.contains(_norm(city), na=False)]
-            if not df_by_zone.empty:
-                df = df_by_zone
+        if df_by_city.empty:
+            # The extractor sometimes puts a zone name in `city`; an unknown name filters to nothing,
+            # it never silently widens the query to every city.
+            df_by_city = _match_zone(df, city)
+        df = df_by_city
 
     if country:
         cc = _cc(country)
         df = df[df["COUNTRY"] == cc]
 
     if zone:
-        df = df[df["ZONE"].apply(_norm).str.contains(_norm(zone), na=False)]
+        df = _match_zone(df, zone)
 
     # ── 4. Filtros de tipo / prioridad ────────────────────────
     # Detectar comparacion Wealthy vs Non Wealthy
@@ -203,11 +199,15 @@ def execute_query(
         df = df.nlargest(top_n or 5, "L0W_VALUE")
     elif "peor" in concept or "worst" in concept:
         df = df.nsmallest(top_n or 5, "L0W_VALUE")
-    elif top_n:
-        # asc = biggest drops, desc = biggest growth, by week-over-week change when available
-        sort_col = "PCT_CHANGE_WOW" if "PCT_CHANGE_WOW" in df.columns else "L0W_VALUE"
+    elif top_n or intent == "ranking":
+        # A ranking always sorts: without a number, the 5 first. Unsorted rows let the LLM
+        # "pick the top" from an arbitrary sample, which is how wrong answers happen.
+        top_n = top_n or DEFAULT_TOP_N
+        # rank_by="value": "más pedidos"; "change": "mayor caída / crecimiento" (default, as before)
+        by_change = rank_by != "value" and "PCT_CHANGE_WOW" in df.columns
+        sort_col = "PCT_CHANGE_WOW" if by_change else "L0W_VALUE"
+        df = df.dropna(subset=[sort_col])
         if sort_col == "PCT_CHANGE_WOW":
-            df = df.dropna(subset=["PCT_CHANGE_WOW"])
             floor = _volume_floor(metric_scope, resolved_metric)
             if floor is not None:
                 df = df[df["L0W_VALUE"] >= floor]
@@ -231,6 +231,18 @@ def execute_query(
 # ── Helpers ───────────────────────────────────────────────────
 
 VOLUME_FLOOR_QUANTILE = 0.05
+DEFAULT_TOP_N = 5
+
+
+def _norm(s) -> str:
+    return unicodedata.normalize("NFD", str(s)).encode("ascii", "ignore").decode().lower().strip()
+
+
+def _match_zone(df: pd.DataFrame, name: str) -> pd.DataFrame:
+    """Exact zone name first ("Los Cedros" must not also return "Los Cedros Norte"); substring only as fallback."""
+    zones = df["ZONE"].apply(_norm)
+    exact = df[zones == _norm(name)]
+    return exact if not exact.empty else df[zones.str.contains(_norm(name), regex=False, na=False)]
 
 
 def _volume_floor(metric_scope: pd.DataFrame, metric: str | None) -> float | None:

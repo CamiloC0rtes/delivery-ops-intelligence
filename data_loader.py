@@ -83,6 +83,15 @@ def _process_orders(df: pd.DataFrame) -> pd.DataFrame:
     return features
 
 
+MIN_PCT_BASE = 0.01  # below this the base is ~0 and a % change is noise (0.0003 -> 0.08 = "+27,000%")
+
+
+def _pct_change(new: float, base: float) -> float:
+    if base is None or np.isnan(base) or np.isnan(new) or abs(base) < MIN_PCT_BASE:
+        return np.nan
+    return (new - base) / abs(base) * 100
+
+
 def _compute_features(long: pd.DataFrame, group_cols: list) -> pd.DataFrame:
     """
     Por cada combinación (zona, métrica) calcula:
@@ -102,8 +111,8 @@ def _compute_features(long: pd.DataFrame, group_cols: list) -> pd.DataFrame:
         l1w = vals[-2] if len(vals) >= 2 else np.nan
         l8w = vals[0]
 
-        pct_wow   = (l0w - l1w) / abs(l1w) * 100 if (l1w and l1w != 0 and not np.isnan(l1w)) else np.nan
-        pct_total = (l0w - l8w) / abs(l8w) * 100 if (l8w and l8w != 0 and not np.isnan(l8w)) else np.nan
+        pct_wow   = _pct_change(l0w, l1w)
+        pct_total = _pct_change(l0w, l8w)
 
         x = np.arange(len(vals))
         try:

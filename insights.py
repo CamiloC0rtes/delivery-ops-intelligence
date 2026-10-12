@@ -56,6 +56,20 @@ def format_digest(insights: list[Insight], top_n: int = 8) -> str:
     return "\n".join(lines)
 
 
+def fmt(v: float, signed: bool = False) -> str:
+    """Human numbers: 2,041 not 2.04e+03; 0.8731 for rates. Never scientific notation."""
+    if v is None or v != v:
+        return "s/d"
+    a = abs(v)
+    if a >= 100 or (a >= 1 and float(v).is_integer()):
+        out = f"{v:,.0f}"
+    elif a >= 1:
+        out = f"{v:,.2f}"
+    else:
+        out = f"{v:.4f}"
+    return ("+" if signed and v > 0 else "") + out
+
+
 # ── Detectores ────────────────────────────────────────────────────────────────
 
 def _correlations(df: pd.DataFrame) -> list[Insight]:
@@ -110,10 +124,10 @@ def _anomalies(df: pd.DataFrame, threshold: float) -> list[Insight]:
             tipo="anomaly", severity=severity,
             country=r.get("COUNTRY", ""), city=r.get("CITY", ""),
             zone=r.get("ZONE", ""), metric=r.get("METRIC", ""),
-            finding=(f"{direction.capitalize()} de {abs(r['PCT_CHANGE_WOW']):.1f}% WoW "
-                     f"en {r.get('METRIC','')} ({r['L1W_VALUE']:.3g} → {r['L0W_VALUE']:.3g})"),
-            impact=(f"Variación de {delta:+.3g} unidades. "
-                    f"Proyección acumulada 4 semanas: {delta*4:+.3g}"),
+            finding=(f"{direction.capitalize()} de {abs(r['PCT_CHANGE_WOW']):.1f}% vs semana anterior "
+                     f"en {r.get('METRIC','')} ({fmt(r['L1W_VALUE'])} → {fmt(r['L0W_VALUE'])})"),
+            impact=(f"Variación de {fmt(delta, True)} unidades. "
+                    f"Proyección acumulada 4 semanas: {fmt(delta * 4, True)}"),
             recommendation=("Investigar causa raíz: oferta, demanda o evento externo. "
                             "Revisar logs de cancelaciones en la zona."
                             if r["PCT_CHANGE_WOW"] < 0
@@ -156,8 +170,8 @@ def _sustained_trends(df: pd.DataFrame) -> list[Insight]:
                 country=r.get("COUNTRY", ""), city=r.get("CITY", ""),
                 zone=r.get("ZONE", ""), metric=r.get("METRIC", ""),
                 finding=(f"{label.capitalize()} continuo 3+ semanas en {r.get('METRIC','')}. "
-                         f"Pendiente: {slope:+.4g}/semana | L0W: {l0w:.4g}"),
-                impact=f"Proyección en 4 semanas: {proj:.4g} vs {l0w:.4g} actual",
+                         f"Pendiente: {fmt(slope, True)} por semana · valor actual: {fmt(l0w)}"),
+                impact=f"Proyección en 4 semanas: {fmt(proj)} vs {fmt(l0w)} actual",
                 recommendation=("Activar plan de recuperación: revisar mix, incentivos, ETAs."
                                 if label == "deterioro"
                                 else "Zona en momentum positivo — considerar inversión adicional."),
@@ -183,8 +197,8 @@ def _benchmarking(df: pd.DataFrame) -> list[Insight]:
             zone=r.get("ZONE", ""), metric=r.get("METRIC", ""),
             finding=(f"Performance {abs(r['ZSCORE_VS_CITY']):.1f}σ por debajo del promedio "
                      f"de {r.get('CITY','')} en {r.get('METRIC','')}. "
-                     f"Valor: {r['L0W_VALUE']:.3g} vs avg {city_avg:.3g}"),
-            impact=f"Brecha de {gap:.3g} unidades vs promedio ciudad.",
+                     f"Valor: {fmt(r['L0W_VALUE'])} vs promedio {fmt(city_avg)}"),
+            impact=f"Brecha de {fmt(gap)} vs el promedio de la ciudad.",
             recommendation="Analizar zonas de alto desempeño en la misma ciudad y replicar condiciones.",
             evidence_value=r["ZSCORE_VS_CITY"],
         ))
@@ -201,9 +215,9 @@ def _opportunities(df: pd.DataFrame) -> list[Insight]:
             tipo="opportunity", severity="low",
             country=r.get("COUNTRY", ""), city=r.get("CITY", ""),
             zone=r.get("ZONE", ""), metric=r.get("METRIC", ""),
-            finding=(f"Crecimiento {r['PCT_CHANGE_WOW']:.1f}% WoW con tendencia positiva "
-                     f"(slope: +{r['TREND_SLOPE']:.4g}/sem)"),
-            impact=f"Proyección 4 semanas: {proj:.3g} vs {r['L0W_VALUE']:.3g} actual.",
+            finding=(f"Crecimiento de {r['PCT_CHANGE_WOW']:.1f}% vs semana anterior con tendencia positiva "
+                     f"(pendiente {fmt(r['TREND_SLOPE'], True)} por semana)"),
+            impact=f"Proyección en 4 semanas: {fmt(proj)} vs {fmt(r['L0W_VALUE'])} actual.",
             recommendation="Zona en momentum — priorizar inversión: oferta, repartidores, campañas.",
             evidence_value=r["PCT_CHANGE_WOW"],
         ))

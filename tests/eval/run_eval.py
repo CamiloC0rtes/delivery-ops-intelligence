@@ -46,14 +46,23 @@ def ground_truth(expect: dict, data: dict):
 
 def score_case(case: dict, client: TestClient, data: dict, all_zones: set[str]) -> dict:
     session = ""
-    if case.get("after"):
-        session = client.post("/api/chat", json={"message": case["after"]}).json()["session_id"]
+    after = case.get("after") or []
+    for prior in [after] if isinstance(after, str) else after:  # one or several earlier turns
+        session = client.post("/api/chat", json={"message": prior, "session_id": session}).json()["session_id"]
     start = time.perf_counter()
     r = client.post("/api/chat", json={"message": case["question"], "session_id": session}).json()
     latency = time.perf_counter() - start
 
     ctx, answer = r["context"], r["answer"]
     failures = []
+    for needle in case.get("answer_contains", []):  # "a|b" = either spelling (0.87 / 0,87)
+        if not any(alt.lower() in answer.lower() for alt in needle.split("|")):
+            failures.append(f"answer missing {needle!r}")
+    if "max_rows" in case and r["rows_found"] > case["max_rows"]:
+        failures.append(f"queried {r['rows_found']} rows, expected at most {case['max_rows']}")
+    if case.get("refusal"):  # out of scope / unknown filters: deterministic reply, no extraction checks
+        return {"id": case["id"], "passed": not failures, "failures": failures,
+                "latency_s": round(time.perf_counter() - start, 2), "context": ctx, "answer": answer}
     for key, want in case["expect"].items():
         got = ctx.get(key)
         if isinstance(want, str) and isinstance(got, str):

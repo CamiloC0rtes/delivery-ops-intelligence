@@ -63,7 +63,7 @@ COUNTRIES: dict[str, dict] = {
 ZONE_TYPES = ["Wealthy", "Non Wealthy"]
 PRIORITIES = ["High Priority", "Prioritized", "Not Prioritized"]
 
-INTENTS = ["ranking", "trend", "comparison", "anomaly", "summary", "filter", "multivariable", "correlation"]
+INTENTS = ["ranking", "trend", "comparison", "anomaly", "summary", "filter", "multivariable", "correlation", "out_of_scope"]
 CONCEPTS = ["zonas problemáticas", "alto crecimiento", "bajo performance", "deterioro sostenido",
             "mejora sostenida", "mejor zona", "peor zona", "outliers"]
 
