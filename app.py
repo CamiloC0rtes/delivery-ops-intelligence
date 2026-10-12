@@ -259,7 +259,8 @@ def generate_answer(message: str, data_text: str, context: dict,
         return resp.choices[0].message.content
     except Exception as e:
         log.error("Answer generation failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Error OpenAI: {e}") from e
+        # Don't leak provider internals to the browser; the log has the full error
+        raise HTTPException(status_code=502, detail="El modelo de lenguaje no respondió. Intenta de nuevo en un momento.") from e
 
 def insight_to_dict(ins: Insight) -> dict:
     return {

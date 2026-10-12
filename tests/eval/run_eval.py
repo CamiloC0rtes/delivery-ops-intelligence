@@ -50,8 +50,13 @@ def score_case(case: dict, client: TestClient, data: dict, all_zones: set[str]) 
     for prior in [after] if isinstance(after, str) else after:  # one or several earlier turns
         session = client.post("/api/chat", json={"message": prior, "session_id": session}).json()["session_id"]
     start = time.perf_counter()
-    r = client.post("/api/chat", json={"message": case["question"], "session_id": session}).json()
+    resp = client.post("/api/chat", json={"message": case["question"], "session_id": session})
     latency = time.perf_counter() - start
+    if resp.status_code != 200:
+        detail = resp.json().get("detail", resp.text) if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+        return {"id": case["id"], "passed": False, "failures": [f"HTTP {resp.status_code}: {str(detail)[:200]}"],
+                "latency_s": round(latency, 2), "context": {}, "answer": "", "http_error": resp.status_code}
+    r = resp.json()
 
     ctx, answer = r["context"], r["answer"]
     failures = []
@@ -130,6 +135,10 @@ def main():
         for case in cases:
             r = score_case(case, client, data, all_zones)
             results.append(r)
+            if r.get("http_error") == 502 and len(results) == 1:
+                write_report(results, Path(args.out))
+                raise SystemExit("The LLM call failed on the first case (expired or invalid OPENAI_API_KEY?): "
+                                 + r["failures"][0])
             print(f"{'✅' if r['passed'] else '❌'} {r['id']:<22} {'; '.join(r['failures'])}")
     rate, p95 = write_report(results, Path(args.out))
     print(f"\npass rate {rate:.0%} · p95 {p95:.2f}s")
