@@ -304,3 +304,13 @@ def test_backstops_fix_concept_metric_and_zone(client):
     fake.extraction["bajo performance"] = json.dumps({"intent": "ranking", "metric": "Perfect Orders", "sort_order": "asc"})
     r = c.post("/api/chat", json={"message": "¿Qué zonas tienen bajo performance en markdowns?"}).json()
     assert r["context"]["concept"] == "bajo performance" and r["context"]["metric"] == "Markdowns / GMV"
+
+
+def test_exact_zone_in_text_overrides_shortened_extraction(client):
+    c, fake = client
+    o = app_module.DATA["orders_long"]
+    long_name = next(z for z in o.ZONE if any(z != x and z.startswith(x + " ") for x in o.ZONE))
+    short = next(x for x in o.ZONE if long_name.startswith(x + " "))
+    fake.extraction["zona " + long_name] = json.dumps({"intent": "summary", "zone": short})
+    r = c.post("/api/chat", json={"message": f"¿Cómo va la zona {long_name}?"}).json()
+    assert r["context"]["zone"] == long_name

@@ -516,7 +516,9 @@ async def chat(req: ChatRequest):
         return finish(session, session_id, message, OUT_OF_SCOPE_ANSWER)
 
     # Deterministic backstops for what the extractor drops or confuses (all found by the stress test)
-    if not entities.get("zone") and (zone := zone_in_text(message, DATA["orders_long"])):
+    if (zone := zone_in_text(message, DATA["orders_long"])) and entities.get("zone") != zone:
+        if entities.get("zone"):  # e.g. "Las Magnolias Alto" in the text, "Las Magnolias" extracted
+            log.info("zone %r overridden by the exact name in the text: %r", entities["zone"], zone)
         entities["zone"] = zone
     if not any(entities.get(k) for k in ("city", "zone", "country")) and (city := city_in_text(message)):
         entities["city"] = city
