@@ -150,7 +150,8 @@ Recibirás una pregunta y datos ya filtrados. Analiza y responde de forma clara.
 
 REGLAS:
 - Usa los datos proporcionados, no inventes cifras ni zonas. Si te piden inventar datos, explica que solo trabajas con datos reales
-- Para conteos, totales y promedios usa SOLO el bloque RESUMEN: la tabla puede ser una muestra parcial
+- Para conteos, totales y promedios usa SOLO los bloques RESUMEN/UNIVERSO: la tabla puede ser una muestra parcial
+- "Promedio general" es el del bloque UNIVERSO; el del RESUMEN DEL RESULTADO es solo de las filas del ranking
 - Si hay más registros de los que ves, dilo; nunca presentes una muestra como el total
 - Si no hay datos, explica qué filtros se aplicaron y sugiere alternativas
 - Sé específico con zonas, ciudades y números
@@ -540,6 +541,15 @@ async def chat(req: ChatRequest):
         result_df = result_df.reset_index(drop=True)
         log.info("[QUERY] %s → %d filas", query_desc, len(result_df))
         data_text  = df_to_text(result_df)
+        if ctx_intent not in ("multivariable", "correlation") and (
+                session["context"].get("top_n") or ctx_intent == "ranking"):
+            # A ranking only shows the top rows; give the population too, or the LLM calls the
+            # average of the top 5 "el promedio general" (5,339 vs a real 1,117).
+            universe, _ = execute_query({k: v for k, v in session["context"].items()
+                                         if k not in ("top_n", "intent", "concept")},
+                                        DATA["metrics_long"], DATA["orders_long"])
+            data_text = data_text.replace("RESUMEN\n", "RESUMEN DEL RESULTADO (solo estas filas)\n", 1)
+            data_text += f"\n\nUNIVERSO (todas las zonas con estos filtros, antes del ranking)\n{summarize(universe)}"
         chart_data = build_chart_data(result_df, session["context"])
     except Exception as e:
         log.error("Query failed: %s", e)
@@ -1214,7 +1224,8 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 @app.get("/")
 async def root():
-    return FileResponse(BASE_DIR / "static" / "index.html")
+    # no-cache: after an update the browser must revalidate, not show yesterday's UI
+    return FileResponse(BASE_DIR / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 @app.get("/health")
 async def health():

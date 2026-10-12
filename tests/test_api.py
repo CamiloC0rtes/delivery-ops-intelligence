@@ -257,3 +257,16 @@ def test_unknown_country_backstop(client):
     fake.extraction["Uruguay"] = json.dumps({"intent": "ranking", "metric": "Orders", "top_n": 5})
     r = c.post("/api/chat", json={"message": "Top 5 caídas de órdenes en Uruguay"}).json()
     assert "«Uruguay»" in r["answer"] and r["rows_found"] == 0
+
+
+def test_ranking_answers_get_population_stats(client, data):
+    c, fake = client
+    c.post("/api/chat", json={"message": "¿Cuál es la zona con más pedidos?"})
+    sent = fake.calls[-1][-1]["content"]
+    assert "RESUMEN DEL RESULTADO (solo estas filas)" in sent
+    assert f"Orders: {data['orders_long'].ZONE.nunique()} zonas" in sent.split("UNIVERSO")[1]
+
+
+def test_index_is_not_cached(client):
+    c, _ = client
+    assert c.get("/").headers["cache-control"] == "no-cache"

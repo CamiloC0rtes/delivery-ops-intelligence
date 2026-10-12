@@ -276,7 +276,7 @@ $("ask").addEventListener("submit", async (ev) => {
                                         body: JSON.stringify({ message: q, session_id: sessionId }) });
     sessionId = r.session_id;
     pending.remove();
-    addMsg(r.answer, "bot", r.rows_found === 1 ? "Basado en 1 registro" : `Basado en ${r.rows_found} registros`);
+    addMsg(r.answer, "bot", r.rows_found === 0 ? "" : r.rows_found === 1 ? "Basado en 1 registro" : `Basado en ${r.rows_found} registros`);
     drawChatChart(r.chart);
   } catch (e) {
     pending.remove();
@@ -291,7 +291,11 @@ function axisStyle() {
 function drawChatChart(chart) {
   charts.chat?.destroy();
   $("chat-empty").style.display = chart ? "none" : "grid";
-  if (!chart) { $("chart-title").textContent = "Esta respuesta no tiene gráfico"; return; }
+  if (!chart) {
+    $("chart-title").textContent = "Gráfico de la respuesta";
+    $("chat-empty").textContent = "Esta respuesta no trae un ranking de zonas, así que no hay gráfico.";
+    return;
+  }
   $("chart-title").textContent = chart.title.replace(" · ", ": ");
   const ds = chart.datasets[0];
   charts.chat = new Chart($("chat-chart"), {
