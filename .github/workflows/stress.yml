@@ -1,0 +1,31 @@
+name: Stress test
+
+# Bombards the assistant with generated questions and flags invariant violations.
+# Needs the OPENAI_API_KEY repo secret. Two seeds run in parallel.
+on:
+  workflow_dispatch:
+    inputs:
+      n:
+        description: "Questions per seed"
+        default: "150"
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 2]
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m tests.eval.stress --seed ${{ matrix.seed }} --n ${{ inputs.n }}
+      - name: Report
+        if: always()
+        run: cat stress_report.md >> "$GITHUB_STEP_SUMMARY"

@@ -11,3 +11,4 @@ venv/
 .pytest_cache/
 .ruff_cache/
 eval_report.*
+stress_report.*
