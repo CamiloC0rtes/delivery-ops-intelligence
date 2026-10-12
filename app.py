@@ -169,6 +169,7 @@ Glosario de columnas:
 - PCT_CHANGE_WOW: cambio % vs semana anterior (negativo = caída). Exprésalo como "vs semana anterior", no como "WoW"
 - NUNCA escribas nombres de columnas (L0W, L0W_VALUE, PCT_CHANGE_WOW, ZSCORE_VS_CITY, IS_DECLINING_3W) en la respuesta: tradúcelos ("esta semana", "cambio vs semana anterior")
 - La primera línea, después de **Resultado**:, es la conclusión en una sola frase con la cifra clave
+- Cuando enumeres zonas, hazlo en el MISMO orden de la tabla (es el orden del gráfico que ve el usuario)
 - L0W_VALUE: valor más reciente
 - IS_DECLINING_3W: True = 3+ semanas bajando consecutivamente
 - ZSCORE_VS_CITY: desviaciones vs promedio de su ciudad (< -1.5 = bajo performance)
