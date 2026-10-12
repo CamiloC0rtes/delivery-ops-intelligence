@@ -167,6 +167,8 @@ ESTRUCTURA OBLIGATORIA (usa exactamente estos encabezados):
 
 Glosario de columnas:
 - PCT_CHANGE_WOW: cambio % vs semana anterior (negativo = caída). Exprésalo como "vs semana anterior", no como "WoW"
+- NUNCA escribas nombres de columnas (L0W, L0W_VALUE, PCT_CHANGE_WOW, ZSCORE_VS_CITY, IS_DECLINING_3W) en la respuesta: tradúcelos ("esta semana", "cambio vs semana anterior")
+- La primera línea, después de **Resultado**:, es la conclusión en una sola frase con la cifra clave
 - L0W_VALUE: valor más reciente
 - IS_DECLINING_3W: True = 3+ semanas bajando consecutivamente
 - ZSCORE_VS_CITY: desviaciones vs promedio de su ciudad (< -1.5 = bajo performance)
@@ -568,30 +570,33 @@ async def chat(req: ChatRequest):
         if v is not None:
             session["context"][k] = v
 
+    return answer_for_context(session, session_id, message, client)
+
+
+def answer_for_context(session: dict, session_id: str, message: str, client: OpenAI,
+                       llm_question: str | None = None) -> dict:
+    """Query + grounded answer for the filters in force. Shared by /api/chat and /api/refine."""
     log.info("[CONTEXT] after merge: %s", json.dumps(session["context"], ensure_ascii=False))
+    ctx = session["context"]
     try:
-        ctx_intent = session["context"].get("intent", "")
+        ctx_intent = ctx.get("intent", "")
         if ctx_intent == "multivariable":
-            result_df, query_desc = execute_multivariable(session["context"], DATA["metrics_long"])
+            result_df, query_desc = execute_multivariable(ctx, DATA["metrics_long"])
         elif ctx_intent == "correlation":
-            result_df, query_desc = execute_correlation(DATA["metrics_long"], country=session["context"].get("country",""), min_r=0.4)
+            result_df, query_desc = execute_correlation(DATA["metrics_long"], country=ctx.get("country",""), min_r=0.4)
         else:
-            result_df, query_desc = execute_query(
-                session["context"], DATA["metrics_long"], DATA["orders_long"]
-            )
+            result_df, query_desc = execute_query(ctx, DATA["metrics_long"], DATA["orders_long"])
         result_df = result_df.reset_index(drop=True)
         log.info("[QUERY] %s → %d filas", query_desc, len(result_df))
         data_text  = df_to_text(result_df)
-        if ctx_intent not in ("multivariable", "correlation") and (
-                session["context"].get("top_n") or ctx_intent == "ranking"):
+        if ctx_intent not in ("multivariable", "correlation") and (ctx.get("top_n") or ctx_intent == "ranking"):
             # A ranking only shows the top rows; give the population too, or the LLM calls the
             # average of the top 5 "el promedio general" (5,339 vs a real 1,117).
-            universe, _ = execute_query({k: v for k, v in session["context"].items()
-                                         if k not in ("top_n", "intent", "concept")},
+            universe, _ = execute_query({k: v for k, v in ctx.items() if k not in ("top_n", "intent", "concept")},
                                         DATA["metrics_long"], DATA["orders_long"])
             data_text = data_text.replace("RESUMEN\n", "RESUMEN DEL RESULTADO (solo estas filas)\n", 1)
             data_text += f"\n\nUNIVERSO (todas las zonas con estos filtros, antes del ranking)\n{summarize(universe)}"
-        chart_data = build_chart_data(result_df, session["context"])
+        chart_data = build_chart_data(result_df, ctx)
     except Exception as e:
         log.error("Query failed: %s", e)
         result_df  = pd.DataFrame()
@@ -600,9 +605,124 @@ async def chat(req: ChatRequest):
 
     bot_turns = [m for m in session["history"] if m["role"] == "assistant"]
     result_zones = list(result_df["ZONE"]) if "ZONE" in result_df.columns else []
-    answer    = generate_answer(message, data_text, session["context"], bot_turns, client,
+    answer    = generate_answer(llm_question or message, data_text, ctx, bot_turns, client,
                                 result_zones, set(DATA["orders_long"]["ZONE"]))
-    return finish(session, session_id, message, answer, result_df, chart_data)
+    out = finish(session, session_id, message, answer, result_df, chart_data)
+    out["rows"] = result_rows(result_df)
+    out["filters"] = filter_chips(ctx)
+    out["suggestions"] = follow_up_suggestions(ctx, result_df)
+    return out
+
+
+# ── Interactive layer: rows for the chart, editable filter chips, follow-ups ──
+METRIC_LABELS_ES = {
+    "Orders": "Pedidos", "Perfect Orders": "Perfect Orders", "Restaurant Conversion Rate": "Conversión restaurantes",
+    "Retail Conversion Rate": "Conversión retail", "Gross Profit per Order": "Ganancia por pedido",
+    "Express Delivery Adoption": "Adopción express", "Subscription Adoption": "Adopción suscripción",
+    "Lead Penetration": "Penetración de leads", "Markdowns / GMV": "Descuentos / GMV",
+    "Optimal Assortment Sessions": "Surtido óptimo",
+}
+
+
+def result_rows(df: pd.DataFrame, limit: int = 15) -> list[dict]:
+    """Rows the UI can chart, tabulate and click through to a zone (same rows the answer used)."""
+    if df.empty or "ZONE" not in df.columns:
+        return []
+    cols = [c for c in ("ZONE", "CITY", "COUNTRY", "METRIC", "L0W_VALUE", "L1W_VALUE", "PCT_CHANGE_WOW",
+                        "IS_DECLINING_3W", "ZONE_TYPE") if c in df.columns]
+    rows = df[cols].head(limit).to_dict("records")
+    return [{k.lower(): v for k, v in r.items()} for r in rows]
+
+
+def filter_chips(ctx: dict) -> list[dict]:
+    """What the system understood, as removable chips. Order = how a person would say it."""
+    chips = []
+    if ctx.get("metric"):
+        chips.append({"key": "metric", "label": METRIC_LABELS_ES.get(ctx["metric"], ctx["metric"]), "removable": True})
+    if ctx.get("metric_high") and ctx.get("metric_low"):
+        chips.append({"key": "metric_high", "label": f"Alta {METRIC_LABELS_ES.get(ctx['metric_high'], ctx['metric_high'])}",
+                      "removable": False})
+        chips.append({"key": "metric_low", "label": f"Baja {METRIC_LABELS_ES.get(ctx['metric_low'], ctx['metric_low'])}",
+                      "removable": False})
+    if ctx.get("country"):
+        chips.append({"key": "country", "label": COUNTRIES.get(ctx["country"], {}).get("name", ctx["country"]),
+                      "removable": True})
+    for key in ("city", "zone"):
+        if ctx.get(key):
+            chips.append({"key": key, "label": ctx[key], "removable": True})
+    if ctx.get("zone_type"):
+        label = "Wealthy vs Non Wealthy" if ctx["zone_type"] == "comparison" else ctx["zone_type"]
+        chips.append({"key": "zone_type", "label": label, "removable": True})
+    if ctx.get("priority"):
+        chips.append({"key": "priority", "label": ctx["priority"], "removable": True})
+    if ctx.get("concept"):
+        chips.append({"key": "concept", "label": ctx["concept"].capitalize(), "removable": True})
+    if ctx.get("top_n") or ctx.get("intent") == "ranking":
+        how = ("mayor caída" if ctx.get("sort_order") == "asc" else "mayor crecimiento") \
+            if ctx.get("rank_by", "change") == "change" else ("menor valor" if ctx.get("sort_order") == "asc" else "mayor valor")
+        chips.append({"key": "top_n", "label": f"Top {ctx.get('top_n') or 5} · {how}", "removable": False,
+                      "options": [3, 5, 10, 15]})
+    return chips
+
+
+def follow_up_suggestions(ctx: dict, df: pd.DataFrame) -> list[str]:
+    """Deterministic next questions built from the answer just given (no LLM call)."""
+    out = []
+    metric = ctx.get("metric")
+    if ctx.get("intent") in ("ranking", None) or ctx.get("top_n"):
+        if ctx.get("sort_order") == "asc" and ctx.get("rank_by", "change") == "change":
+            out.append("¿Y cuáles crecieron más?")
+        elif ctx.get("rank_by", "change") == "change":
+            out.append("¿Y cuáles cayeron más?")
+    if metric and metric != "Perfect Orders":
+        out.append("¿Y en Perfect Orders?")
+    elif metric == "Perfect Orders":
+        out.append("¿Y en pedidos?")
+    if "ZONE" in df.columns and not df.empty and not ctx.get("zone"):
+        top = df.iloc[0]
+        out.append(f"¿Cómo va {top['ZONE']} en todas sus métricas?")
+    if not ctx.get("country") and "COUNTRY" in df.columns and not df.empty:
+        cc = df["COUNTRY"].mode().iloc[0]
+        out.append(f"Solo {COUNTRIES.get(cc, {}).get('name', cc)}")
+    if metric and not ctx.get("zone_type"):
+        out.append("Compara Wealthy vs Non Wealthy")
+    return out[:4]
+
+
+class RefineRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    remove: str | None = Field(default=None, max_length=20)
+    top_n: int | None = Field(default=None, ge=1, le=50)
+
+
+REMOVABLE = {"metric", "country", "city", "zone", "zone_type", "priority", "concept"}
+
+
+@app.post("/api/refine")
+async def refine(req: RefineRequest):
+    """Edit the filters in force (remove a chip, change top N) and re-answer, without re-asking the LLM
+    to extract anything: the user is correcting the system's understanding directly."""
+    client = DATA.get("client")
+    if client is None:
+        raise HTTPException(status_code=503, detail="Chat deshabilitado: configura OPENAI_API_KEY.")
+    session = SESSIONS.get(req.session_id)
+    if not session or not session["context"]:
+        raise HTTPException(status_code=404, detail="No hay una pregunta previa que ajustar.")
+    ctx = session["context"]
+    if req.remove:
+        if req.remove not in REMOVABLE:
+            raise HTTPException(status_code=422, detail=f"No se puede quitar «{req.remove}».")
+        ctx.pop(req.remove, None)
+        if req.remove == "zone_type" and ctx.get("intent") == "comparison":
+            ctx["intent"] = "ranking"
+    if req.top_n:
+        ctx["top_n"] = req.top_n
+        ctx.setdefault("intent", "ranking")
+    last_q = next((m["content"] for m in reversed(session["history"]) if m["role"] == "user"), "")
+    label = "Ajuste: " + " · ".join(c["label"] for c in filter_chips(ctx)) if ctx else "Ajuste"
+    return answer_for_context(session, req.session_id, label, client,
+                              llm_question=f"{last_q}\n(El usuario ajustó los filtros; responde con los filtros aplicados.)")
+
 
 @app.delete("/api/session/{session_id}")
 async def reset_session(session_id: str):
@@ -664,6 +784,10 @@ async def get_filters():
         "cities":    sorted(m["CITY"].unique().tolist()),
         "zone_types": ["Wealthy", "Non Wealthy"],
         "priorities": ["High Priority", "Prioritized", "Not Prioritized"],
+        # How the UI formats and names each metric: "87,3 %" not 0.8726, "Pedidos" not "Orders"
+        "metric_info": {name: {"kind": info["kind"], "label": METRIC_LABELS_ES.get(name, name)}
+                        for name, info in METRICS.items()},
+        "country_names": {code: info["name"] for code, info in COUNTRIES.items()},
     }
 
 @app.get("/api/timeseries")

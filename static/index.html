@@ -10,44 +10,44 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
-    --pavement: #e9eeec;   /* page */
-    --panel: #ffffff;
-    --asphalt: #22313a;    /* ink + header band */
-    --asphalt-2: #2e3f49;
-    --muted: #5e6f73;
-    --line: #cfd8d6;
-    --lane: #f2b705;       /* road marking: lane line, focus, selection only */
-    --brake: #c8323c;      /* drops */
-    --sign: #1e7f5c;       /* growth */
-    --amber: #b7791f;      /* medium severity */
-    --on-asphalt: #f3f6f5;
+    --pavement: #e9eeec; --panel: #ffffff; --raised: #f5f7f6;
+    --ink: #1c2a31; --muted: #56676b; --line: #cfd8d6;
+    --band: #22313a; --on-band: #f3f6f5; --on-band-muted: #b9c6c9;
+    --lane: #f2b705;                       /* road marking: lane line, focus, active only */
+    --drop: #c8323c; --grow: #1e7f5c;      /* polarity pair; never color alone (sign + arrow + side) */
+    --amber: #b7791f;
+    /* categorical, validated with dataviz/validate_palette.js (light, #fff) */
+    --s1: #2a78d6; --s2: #eb6834; --s3: #6250d6; --s4: #e87ba4; --s5: #c98500; --s6: #1baf7a;
     --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
     --body: "Barlow", system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --pavement: #141b1f; --panel: #1b252a; --muted: #9aaaae; --line: #2f3d44;
-            --asphalt: #e7eeec; --brake: #ef6b62; --sign: #4cc28f; --amber: #e0a63a; }
-    .band { --asphalt-band: #0f1518; }
+    :root { --pavement: #11181c; --panel: #1b252a; --raised: #212d33; --ink: #e7eeec; --muted: #9aaaae; --line: #2f3d44;
+            --band: #0d1316; --drop: #ef6b62; --grow: #4cc28f; --amber: #e0a63a;
+            /* validated (dark, #1b252a) */
+            --s1: #3987e5; --s2: #d95926; --s3: #9085e9; --s4: #d55181; --s5: #c98500; --s6: #199e70; }
   }
   * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; font: 16px/1.55 var(--body); background: var(--pavement); color: var(--asphalt);
-         font-variant-numeric: tabular-nums; }
+  body { margin: 0; font: 16px/1.55 var(--body); background: var(--pavement); color: var(--ink); font-variant-numeric: tabular-nums; }
   :focus-visible { outline: 3px solid var(--lane); outline-offset: 2px; }
+  button { font: inherit; color: inherit; }
+  .sr { position: absolute; left: -9999px; }
 
-  /* ---------- header band: the one bold element ---------- */
-  .band { background: var(--asphalt-band, #22313a); color: var(--on-asphalt); }
-  .band-inner { max-width: 1200px; margin: 0 auto; padding: 16px 20px 20px; }
+  /* ---------- header band ---------- */
+  .band { background: var(--band); color: var(--on-band); }
+  .band-inner { max-width: 1320px; margin: 0 auto; padding: 14px 24px 18px; }
   .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .brand { font: 600 20px/1 var(--cond); letter-spacing: .01em; }
+  .brand { font: 600 20px/1 var(--cond); }
   nav { display: flex; gap: 2px; margin-left: auto; flex-wrap: wrap; }
-  nav button { font: 500 17px/1 var(--cond); color: #b9c6c9; background: none; border: 0;
-               padding: 9px 12px 7px; cursor: pointer; border-bottom: 3px solid transparent; }
-  nav button:hover { color: var(--on-asphalt); }
-  nav button[aria-selected="true"] { color: var(--on-asphalt); border-bottom-color: var(--lane); }
-  .headline { margin: 20px 0 0; font: 700 clamp(28px, 3.6vw, 46px)/1.04 var(--cond); max-width: 30ch; letter-spacing: -.005em; }
+  nav button { font: 500 17px/1 var(--cond); color: var(--on-band-muted); background: none; border: 0; padding: 9px 12px 7px;
+               cursor: pointer; border-bottom: 3px solid transparent; }
+  nav button:hover { color: var(--on-band); }
+  nav button[aria-selected="true"] { color: var(--on-band); border-bottom-color: var(--lane); }
+  .headline { margin: 16px 0 0; font: 700 clamp(26px, 3.4vw, 44px)/1.05 var(--cond); max-width: 32ch; }
   .headline .drop { color: #ff8a80; }
-  .subline { margin: 10px 0 0; color: #c3cfd2; font-size: 17px; max-width: 62ch; }
+  .headline button { all: unset; cursor: pointer; border-bottom: 2px dashed rgba(255,255,255,.35); }
+  .headline button:hover, .headline button:focus-visible { border-bottom-color: var(--lane); }
+  .subline { margin: 8px 0 0; color: #c3cfd2; font-size: 16px; max-width: 70ch; }
   .lane { display: block; width: 100%; height: 6px; }
   .lane line { stroke: var(--lane); stroke-width: 6; stroke-dasharray: 34 22; }
   @media (prefers-reduced-motion: no-preference) {
@@ -55,69 +55,120 @@
     @keyframes paint { from { stroke-dashoffset: 1200; opacity: .2; } to { stroke-dashoffset: 0; opacity: 1; } }
   }
 
-  /* ---------- layout ---------- */
-  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 56px; }
+  main { max-width: 1320px; margin: 0 auto; padding: 20px 24px 56px; }
   .tab { display: none; } .tab.active { display: block; }
-  .split { display: grid; gap: 20px; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
-  @media (max-width: 600px) {
-    .band-inner { padding: 12px 16px 16px; } main { padding: 16px 16px 40px; }
-    .headline { margin-top: 12px; } .subline { font-size: 15px; }
-    #messages { height: 46vh; } .chart-box { height: 340px; }
-    nav { margin-left: 0; width: 100%; } nav button { padding: 8px 10px 6px; }
-  }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
-  .panel-pad { padding: 18px; }
-  h2 { font: 600 22px/1.15 var(--cond); margin: 0 0 4px; }
+  h2 { font: 600 22px/1.15 var(--cond); margin: 0; }
   .hint { color: var(--muted); font-size: 14px; margin: 0; }
-  .banner { border-left: 6px solid var(--lane); background: var(--panel); padding: 12px 16px; margin-bottom: 20px; display: none; }
+  .banner { border-left: 6px solid var(--lane); background: var(--panel); padding: 12px 16px; margin-bottom: 18px; display: none; }
 
-  /* ---------- chat ---------- */
-  #messages { height: clamp(220px, calc(100vh - 470px), 560px); overflow-y: auto; padding: 18px;
-              display: flex; flex-direction: column; gap: 14px; }
-  .msg { max-width: 94%; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .msg.user { align-self: flex-end; background: var(--asphalt-band, #22313a); color: var(--on-asphalt);
-              padding: 9px 14px; border-radius: 3px; }
-  .msg.bot { align-self: flex-start; border-left: 3px solid var(--line); padding: 2px 0 2px 14px; }
-  .msg.bot.fresh { border-left-color: var(--lane); }
-  .msg .meta { display: block; font-size: 13px; color: var(--muted); margin-top: 6px; }
-  .msg.pending { color: var(--muted); }
-  form.ask { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); }
-  input, select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px;
-                  background: var(--panel); color: var(--asphalt); min-width: 0; }
-  form.ask input { flex: 1; }
-  .btn { font: 600 17px/1 var(--cond); letter-spacing: .02em; border: 0; border-radius: 3px; cursor: pointer;
-         background: var(--asphalt-band, #22313a); color: var(--on-asphalt); padding: 11px 18px; }
+  /* ---------- ask workspace ---------- */
+  .ask-row { display: flex; gap: 8px; }
+  .ask-row input { flex: 1; min-width: 0; font: 500 18px/1.3 var(--body); padding: 14px 16px; border: 2px solid var(--line);
+                   border-radius: 3px; background: var(--panel); color: var(--ink); }
+  .ask-row input:focus { border-color: var(--ink); outline: none; }
+  .btn { font: 600 18px/1 var(--cond); letter-spacing: .02em; border: 0; border-radius: 3px; cursor: pointer;
+         background: var(--band); color: var(--on-band); padding: 0 22px; min-height: 48px; }
+  @media (prefers-color-scheme: dark) { .btn { background: var(--lane); color: #11181c; } }
   .btn:disabled { opacity: .45; cursor: default; }
-  .suggest { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 18px; }
-  .suggest button { font: inherit; font-size: 14px; color: var(--asphalt); background: none; cursor: pointer;
-                    border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; text-align: left; }
-  .suggest button:hover { border-color: var(--asphalt); }
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .suggest button { font-size: 15px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+                    padding: 7px 14px; min-height: 36px; cursor: pointer; text-align: left; }
+  .suggest button:hover { border-color: var(--ink); }
 
-  .chart-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 18px 18px 0; flex-wrap: wrap; }
-  .legend { display: flex; gap: 14px; font-size: 14px; color: var(--muted); }
-  .legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
-  .chart-box { position: relative; height: 420px; padding: 8px 12px 14px; }
-  .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
+  .workspace { display: grid; gap: 20px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); margin-top: 18px; align-items: start; }
+  @media (max-width: 980px) { .workspace { grid-template-columns: minmax(0, 1fr); } }
 
-  /* ---------- incident log ---------- */
+  /* understood filters */
+  .understood { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .understood .lbl { font-size: 14px; color: var(--muted); margin-right: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; background: var(--raised);
+          border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px 4px 10px; min-height: 34px; }
+  .chip button { border: 0; background: none; cursor: pointer; width: 26px; height: 26px; border-radius: 2px; color: var(--muted); font-size: 18px; line-height: 1; }
+  .chip button:hover { background: var(--line); color: var(--ink); }
+  .chip select { font: inherit; font-weight: 600; border: 0; background: none; color: inherit; padding: 0 4px; cursor: pointer; }
+  .chip.static { padding-right: 10px; }
+
+  .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 16px 18px 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .seg button { border: 0; background: none; padding: 6px 12px; cursor: pointer; font-size: 14px; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); font-weight: 600; }
+  .chart-area { padding: 6px 18px 18px; position: relative; }
+  .bars { width: 100%; display: block; overflow: visible; }
+  .bars .row { cursor: pointer; }
+  .bars .row:focus { outline: none; }
+  .bars .row:focus .hit, .bars .row:hover .hit { fill: var(--raised); }
+  .bars text { fill: var(--ink); font: 500 14px var(--body); }
+  .bars .sub { fill: var(--muted); font-size: 12px; }
+  .bars .val { font-weight: 600; }
+  .bars .axis { stroke: var(--muted); stroke-width: 1; }
+  .empty { color: var(--muted); padding: 48px 12px; text-align: center; }
+  .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+         padding: 8px 10px; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.12); display: none; z-index: 5; min-width: 180px; }
+  .tip b { font: 700 20px var(--cond); display: block; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.data th, table.data td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  table.data td.num, table.data th.num { text-align: right; }
+  table.data tr { cursor: pointer; } table.data tbody tr:hover { background: var(--raised); }
+
+  /* answer */
+  .answer { padding: 18px; }
+  .answer .lead { font: 600 22px/1.3 var(--cond); margin: 0 0 10px; }
+  .answer details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .answer summary { cursor: pointer; color: var(--muted); font-size: 15px; }
+  .answer .body { white-space: pre-wrap; margin-top: 8px; }
+  .answer .meta { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .answer.loading { opacity: .55; }
+  .history { margin-top: 20px; }
+  .history summary { cursor: pointer; color: var(--muted); }
+  .history ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  .history li button { all: unset; cursor: pointer; color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); }
+
+  /* zone drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(10,15,18,.35); display: none; z-index: 20; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); background: var(--panel); z-index: 21;
+            border-left: 1px solid var(--line); transform: translateX(100%); transition: transform .22s ease-out; overflow-y: auto;
+            padding: 20px 22px 28px; visibility: hidden; }
+  @media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+  .drawer.open { transform: none; visibility: visible; } .scrim.open { display: block; }
+  .drawer h3 { font: 700 28px/1.05 var(--cond); margin: 0; padding-right: 40px; }
+  .drawer .close { position: absolute; top: 14px; right: 14px; border: 0; background: none; font-size: 26px; cursor: pointer; width: 40px; height: 40px; }
+  .drawer .facts { color: var(--muted); font-size: 15px; margin: 4px 0 16px; }
+  .spark { width: 100%; height: 120px; display: block; }
+  .spark .ln { fill: none; stroke: var(--s1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark .area { fill: var(--s1); opacity: .1; }
+  .spark .dot { fill: var(--s1); stroke: var(--panel); stroke-width: 2; }
+  .spark text { fill: var(--muted); font: 12px var(--body); }
+  .spark .end { fill: var(--ink); font-weight: 600; font-size: 13px; }
+  .mlist { list-style: none; padding: 0; margin: 14px 0 0; }
+  .mlist li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .mlist .v { font-weight: 600; text-align: right; }
+  .delta { font-weight: 600; white-space: nowrap; }
+  .delta.down { color: var(--drop); } .delta.up { color: var(--grow); }
+  .drawer .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .ghost { border: 1px solid var(--line); background: var(--panel); border-radius: 3px; padding: 10px 14px; cursor: pointer; font-weight: 600; min-height: 44px; }
+  .ghost:hover { border-color: var(--ink); }
+
+  /* alerts */
   .counts { display: flex; flex-wrap: wrap; gap: 28px; margin-bottom: 18px; }
   .count b { display: block; font: 700 34px/1 var(--cond); }
   .count span { color: var(--muted); font-size: 14px; }
   .filters { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  select { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); color: var(--ink); }
   .log { list-style: none; margin: 0; padding: 0; }
-  .log li { display: grid; grid-template-columns: 6px minmax(0, 1fr) auto; gap: 14px; padding: 14px 18px 14px 0;
-            border-bottom: 1px solid var(--line); }
-  .log li:last-child { border-bottom: 0; }
+  .log li { display: grid; grid-template-columns: 6px minmax(0, 1fr) auto; gap: 14px; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .log li:hover { background: var(--raised); }
   .sev { border-radius: 0 3px 3px 0; }
-  .sev.high { background: var(--brake); } .sev.medium { background: var(--amber); } .sev.low { background: var(--sign); }
+  .sev.high { background: var(--drop); } .sev.medium { background: var(--amber); } .sev.low { background: var(--grow); }
   .log .where { font: 600 19px/1.2 var(--cond); }
-  .log .what { margin: 2px 0 0; }
-  .log .todo { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
-  .log .tag { font-size: 13px; color: var(--muted); white-space: nowrap; }
-  .log-empty { padding: 40px 18px; color: var(--muted); text-align: center; }
+  .log .what { margin: 2px 0 0; } .log .todo { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+  .log .tag { font-size: 13px; color: var(--muted); text-align: right; }
+  .zone-chart { position: relative; height: 420px; padding: 8px 12px 14px; }
 
-  a { color: inherit; }
+  @media (max-width: 600px) {
+    .band-inner, main { padding-left: 16px; padding-right: 16px; }
+    nav { margin-left: 0; width: 100%; } .ask-row { flex-direction: column; } .btn { min-height: 46px; }
+  }
 </style>
 </head>
 <body>
@@ -126,9 +177,9 @@
     <div class="topbar">
       <div class="brand">Delivery Ops Intelligence</div>
       <nav role="tablist" aria-label="Secciones">
-        <button role="tab" aria-selected="true" data-tab="chat">Preguntar</button>
+        <button role="tab" aria-selected="true" data-tab="ask">Preguntar</button>
         <button role="tab" aria-selected="false" data-tab="insights">Alertas</button>
-        <button role="tab" aria-selected="false" data-tab="zones">Zonas</button>
+        <button role="tab" aria-selected="false" data-tab="zones">Tendencias</button>
         <button onclick="window.open('/api/executive-report')">Reporte ejecutivo</button>
       </nav>
     </div>
@@ -139,25 +190,39 @@
 </header>
 
 <main>
-  <div class="banner" id="banner">El chat está apagado porque falta <code>OPENAI_API_KEY</code>. Las alertas y las tendencias por zona funcionan igual.</div>
+  <div class="banner" id="banner">El asistente está apagado porque falta <code>OPENAI_API_KEY</code>. Las alertas, tendencias y el detalle de zonas funcionan igual.</div>
 
-  <section class="tab active" id="tab-chat" role="tabpanel">
-    <div class="split">
+  <section class="tab active" id="tab-ask" role="tabpanel">
+    <form class="ask-row" id="ask">
+      <label for="q" class="sr">Pregunta</label>
+      <input id="q" autocomplete="off" maxlength="500" placeholder="Pregunta en lenguaje natural: «¿qué zonas de Colombia cayeron más en pedidos?»">
+      <button class="btn" id="send">Preguntar</button>
+    </form>
+    <div class="suggest" id="suggest" aria-label="Sugerencias"></div>
+
+    <div class="workspace">
       <div class="panel">
-        <div id="messages" aria-live="polite"></div>
-        <form class="ask" id="ask">
-          <label for="q" class="hint" style="position:absolute;left:-9999px">Pregunta</label>
-          <input id="q" autocomplete="off" maxlength="500" placeholder="Pregunta por caídas, rankings o comparaciones">
-          <button class="btn" id="send">Preguntar</button>
-        </form>
-        <div class="suggest" id="examples"></div>
-      </div>
-      <div class="panel">
-        <div class="chart-head">
-          <h2 id="chart-title">Gráfico de la respuesta</h2>
-          <div class="legend"><span><i style="background:var(--brake)"></i>Caída</span><span><i style="background:var(--sign)"></i>Crecimiento</span></div>
+        <div class="understood" id="understood" aria-live="polite">
+          <span class="lbl">Entendí:</span><span class="hint">tu pregunta, convertida en filtros que puedes ajustar.</span>
         </div>
-        <div class="chart-box"><canvas id="chat-chart"></canvas><div class="empty" id="chat-empty">Haz una pregunta y aquí verás las zonas que la responden.</div></div>
+        <div class="chart-head">
+          <h2 id="chart-title">Zonas de la respuesta</h2>
+          <div class="seg" role="group" aria-label="Vista">
+            <button type="button" aria-pressed="true" data-view="chart">Gráfico</button>
+            <button type="button" aria-pressed="false" data-view="table">Tabla</button>
+          </div>
+        </div>
+        <div class="chart-area" id="chart-area">
+          <div class="empty" id="chart-empty">Haz una pregunta y aquí aparecen las zonas que la responden. Toca cualquiera para ver su detalle.</div>
+          <div class="tip" id="tip" role="status"></div>
+        </div>
+      </div>
+      <div>
+        <div class="panel answer" id="answer" aria-live="polite">
+          <p class="lead">Cada respuesta se construye solo con las filas que devuelve la consulta.</p>
+          <p class="hint">Las cifras y promedios los calcula pandas sobre todos los datos; el modelo solo los explica. Si preguntas por algo que no existe, te lo dice en vez de inventarlo.</p>
+        </div>
+        <details class="history" id="history" hidden><summary>Preguntas anteriores</summary><ol id="history-list"></ol></details>
       </div>
     </div>
   </section>
@@ -181,199 +246,432 @@
         <select id="z-city" aria-label="Ciudad"></select>
         <select id="z-metric" aria-label="Métrica"></select>
       </div>
-      <div class="chart-head"><h2 id="zone-title">Tendencia por zona</h2><p class="hint">Las 6 zonas con más volumen, últimas 9 semanas</p></div>
-      <div class="chart-box"><canvas id="zone-chart"></canvas></div>
+      <div class="chart-head"><h2 id="zone-title">Tendencia por zona</h2><p class="hint">Las 6 zonas con más volumen, últimas 9 semanas. Toca una línea para ver la zona.</p></div>
+      <div class="zone-chart"><canvas id="zone-chart" role="img" aria-label="Tendencia semanal por zona"></canvas></div>
     </div>
   </section>
 </main>
 
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-title" aria-hidden="true">
+  <button class="close" id="d-close" aria-label="Cerrar">×</button>
+  <h3 id="d-title"></h3>
+  <p class="facts" id="d-facts"></p>
+  <div class="hint">Pedidos, últimas 9 semanas</div>
+  <svg class="spark" id="d-spark" viewBox="0 0 400 120" preserveAspectRatio="none" role="img"></svg>
+  <ul class="mlist" id="d-metrics"></ul>
+  <div class="actions">
+    <button class="btn" id="d-ask">Preguntar por esta zona</button>
+    <button class="ghost" id="d-city">Comparar con su ciudad</button>
+  </div>
+</aside>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-let sessionId = "";
+const store = { get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { sessionStorage.setItem(k, v); } catch {} } };
+let sessionId = "", META = { metric_info: {}, country_names: {} }, last = null, view = "chart", busy = false;
 const charts = {};
-const COUNTRY = { CO: "Colombia", MX: "México", BR: "Brasil", AR: "Argentina", PE: "Perú", CL: "Chile" };
-const TIPO = { anomaly: "Cambio brusco", trend: "Tendencia sostenida", benchmark: "Bajo su ciudad", opportunity: "Oportunidad" };
-const SEV = { high: "alta", medium: "media", low: "baja" };
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+const el = (tag, attrs = {}, text) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; };
+const svgEl = (tag, attrs = {}, text) => { const n = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; };
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const md = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-const fmtPct = (v) => `${Math.abs(v).toLocaleString("es", { maximumFractionDigits: 0 })} %`;
+const nf = (d) => new Intl.NumberFormat("es-CO", { maximumFractionDigits: d, minimumFractionDigits: d });
 
+function metricLabel(m) { return META.metric_info[m]?.label || m; }
+function fmtValue(v, metric) {
+  if (v == null) return "s/d";
+  const kind = META.metric_info[metric]?.kind;
+  if (kind === "ratio") return nf(1).format(v * 100) + " %";
+  if (kind === "count") return nf(0).format(v);
+  return nf(2).format(v);
+}
+function fmtDelta(v) {
+  if (v == null) return "s/d";
+  const arrow = v < 0 ? "▼" : v > 0 ? "▲" : "■";
+  return `${arrow} ${v > 0 ? "+" : v < 0 ? "−" : ""}${nf(1).format(Math.abs(v))} %`;
+}
 async function api(path, opts) {
   const r = await fetch(path, opts);
   if (!r.ok) {
     const d = (await r.json().catch(() => ({}))).detail;
-    const msg = Array.isArray(d) ? "la pregunta debe tener entre 1 y 500 caracteres"
-              : (typeof d === "object" && d ? d.message : d);
-    throw new Error(msg || r.statusText);
+    throw new Error(Array.isArray(d) ? "la pregunta debe tener entre 1 y 500 caracteres" : (typeof d === "object" && d ? d.message : d) || r.statusText);
   }
   return r.json();
 }
 
-Chart.defaults.font.family = "Barlow, system-ui, sans-serif";
-Chart.defaults.font.size = 13;
-
 // ---------- tabs ----------
-document.querySelectorAll("nav [data-tab]").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll("nav [data-tab]").forEach((x) => x.setAttribute("aria-selected", x === b));
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + b.dataset.tab));
-  if (b.dataset.tab === "insights" && !$("insight-list").childElementCount) loadInsights();
-  if (b.dataset.tab === "zones" && !charts.zone) loadZone();
-}));
-
-// ---------- headline: what happened this week ----------
-async function loadHeadline(summary) {
-  const r = await api("/api/insights?tipo=anomaly&severity=high&limit=100");
-  const worst = r.insights.filter((i) => i.metric === "Orders" && i.evidence_value < 0)
-                          .sort((a, b) => a.evidence_value - b.evidence_value)[0];
-  if (worst) {
-    $("headline").innerHTML = `${escapeHtml(worst.zone)}, ${escapeHtml(worst.city)}, perdió <span class="drop">${fmtPct(worst.evidence_value)}</span> de sus pedidos esta semana`;
-  } else {
-    $("headline").textContent = "Ninguna zona tuvo una caída brusca de pedidos esta semana";
-  }
-  const high = summary.by_severity.high || 0;
-  $("subline").textContent = `${high} alertas de severidad alta en ${Object.keys(summary.by_country).filter((c) => c !== "GLOBAL").length} países. Pregunta por cualquier zona, métrica o comparación.`;
+function openTab(name) {
+  document.querySelectorAll("nav [data-tab]").forEach((x) => x.setAttribute("aria-selected", x.dataset.tab === name));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + name));
+  if (name === "insights" && !$("insight-list").childElementCount) loadInsights();
+  if (name === "zones") loadZone();
 }
+document.querySelectorAll("nav [data-tab]").forEach((b) => b.addEventListener("click", () => openTab(b.dataset.tab)));
 
-// ---------- chat ----------
-const EXAMPLES = [
-  "¿Cuáles son las 5 zonas con mayor caída de órdenes esta semana?",
+// ---------- ask ----------
+const STARTERS = [
+  "¿Cuáles son las 5 zonas con mayor caída de pedidos esta semana?",
   "Compara Perfect Orders entre zonas Wealthy y Non Wealthy en Colombia",
   "¿Qué zonas tienen deterioro sostenido en Perfect Orders?",
-  "Zonas con alta Lead Penetration pero bajo Perfect Orders",
+  "Zonas con alta penetración de leads pero bajo Perfect Orders",
 ];
-EXAMPLES.forEach((e) => {
-  const c = document.createElement("button");
-  c.type = "button"; c.textContent = e;
-  c.onclick = () => { $("q").value = e; $("ask").requestSubmit(); };
-  $("examples").appendChild(c);
-});
-
-function addMsg(text, who, meta) {
-  document.querySelectorAll(".msg.bot.fresh").forEach((m) => m.classList.remove("fresh"));
-  const d = document.createElement("div");
-  d.className = "msg " + who + (who === "bot" ? " fresh" : "");
-  d.innerHTML = who === "bot" ? md(text) : escapeHtml(text);
-  if (meta) { const m = document.createElement("span"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
-  $("messages").appendChild(d);
-  $("messages").scrollTop = $("messages").scrollHeight;
-  return d;
+function renderSuggestions(list) {
+  const box = $("suggest"); box.replaceChildren();
+  list.forEach((q) => { const b = el("button", { type: "button" }, q); b.onclick = () => ask(q); box.appendChild(b); });
 }
 
-$("ask").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const q = $("q").value.trim();
-  if (!q) return;
-  $("q").value = ""; $("send").disabled = true;
-  addMsg(q, "user");
-  const pending = addMsg("Consultando los datos…", "bot");
-  pending.classList.add("pending");
+async function ask(q) {
+  if (busy || !q.trim()) return;
+  $("q").value = q;
+  await run(() => api("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ message: q, session_id: sessionId }) }), q);
+}
+async function refine(body) {
+  await run(() => api("/api/refine", { method: "POST", headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ session_id: sessionId, ...body }) }), null);
+}
+async function run(call, question) {
+  busy = true; $("send").disabled = true; $("answer").classList.add("loading");
+  $("chart-area").style.opacity = .55;                       // refetch keeps the frame, no flash
   try {
-    const r = await api("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ message: q, session_id: sessionId }) });
-    sessionId = r.session_id;
-    pending.remove();
-    addMsg(r.answer, "bot", r.rows_found === 0 ? "" : r.rows_found === 1 ? "Basado en 1 registro" : `Basado en ${r.rows_found} registros`);
-    drawChatChart(r.chart);
+    const r = await call();
+    sessionId = r.session_id; last = r;
+    renderAnswer(r); renderFilters(r.filters || []); renderResult(r);
+    renderSuggestions(r.suggestions?.length ? r.suggestions : STARTERS);
+    if (question) addHistory(question);
   } catch (e) {
-    pending.remove();
-    addMsg("No se pudo responder: " + e.message + ". Intenta reformular la pregunta.", "bot");
-  } finally { $("send").disabled = false; $("q").focus(); }
-});
+    $("answer").replaceChildren(el("p", { class: "lead" }, "No pude responder"), el("p", {}, e.message + ". Intenta reformular la pregunta."));
+  } finally {
+    busy = false; $("send").disabled = !META.chat; $("answer").classList.remove("loading"); $("chart-area").style.opacity = 1;
+    $("q").focus();
+  }
+}
+$("ask").addEventListener("submit", (ev) => { ev.preventDefault(); ask($("q").value.trim()); });
 
-function axisStyle() {
-  return { ticks: { color: css("--muted") }, grid: { color: css("--line") }, border: { color: css("--line") } };
+// Answer in two layers: the one-line conclusion, then detail + context + recommendation on demand
+function renderAnswer(r) {
+  const box = $("answer"); box.replaceChildren();
+  const text = r.answer || "";
+  const parts = text.split(/\*\*(Resultado|Contexto|Recomendaci[oó]n)\*\*\s*:?/i);
+  let result = text, rest = "";
+  if (parts.length > 2) {
+    result = (parts[2] || "").trim();
+    for (let i = 3; i < parts.length; i += 2) rest += `**${parts[i]}**: ${(parts[i + 1] || "").trim()}\n\n`;
+    rest = rest.trim();
+  }
+  const cut = result.search(/\n|:\s*(?=\d+\.|-)/);
+  const lead = (cut > 0 ? result.slice(0, cut + (result[cut] === ":" ? 1 : 0)) : result).trim();
+  const detail = cut > 0 ? result.slice(cut + 1).trim() : "";
+  const p = el("p", { class: "lead" }); p.innerHTML = md(lead); box.appendChild(p);
+  if (detail || rest) {
+    const d = el("details"); d.appendChild(el("summary", {}, "Ver detalle, contexto y recomendación"));
+    const body = el("div", { class: "body" }); body.innerHTML = md([detail, rest].filter(Boolean).join("\n\n"));
+    d.appendChild(body); box.appendChild(d);
+  }
+  if (r.rows_found) box.appendChild(el("div", { class: "meta" }, `Calculado sobre ${r.rows_found} ${r.rows_found === 1 ? "registro" : "registros"} de los datos.`));
 }
 
-function drawChatChart(chart) {
-  charts.chat?.destroy();
-  $("chat-empty").style.display = chart ? "none" : "grid";
-  if (!chart) {
-    $("chart-title").textContent = "Gráfico de la respuesta";
-    $("chat-empty").textContent = "Esta respuesta no trae un ranking de zonas, así que no hay gráfico.";
-    return;
-  }
-  $("chart-title").textContent = chart.title.replace(" · ", ": ");
-  const ds = chart.datasets[0];
-  charts.chat = new Chart($("chat-chart"), {
-    type: "bar",
-    data: { labels: chart.labels, datasets: [{ label: ds.label, data: ds.data, borderRadius: 2, maxBarThickness: 26,
-      backgroundColor: ds.data.map((v) => (v < 0 ? css("--brake") : css("--sign"))) }] },
-    options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } },
-      scales: { x: axisStyle(), y: { ...axisStyle(), grid: { display: false }, ticks: { color: css("--asphalt") } } } },
+function renderFilters(filters) {
+  const box = $("understood"); box.replaceChildren(el("span", { class: "lbl" }, "Entendí:"));
+  if (!filters.length) { box.appendChild(el("span", { class: "hint" }, "sin filtros: todo el conjunto de datos.")); return; }
+  filters.forEach((f) => {
+    const chip = el("span", { class: "chip" + (f.removable ? "" : " static") });
+    if (f.options) {
+      const n = parseInt((f.label.match(/Top (\d+)/) || [])[1] || "5", 10);
+      const sel = el("select", { "aria-label": "Cantidad de zonas" });
+      f.options.forEach((o) => { const op = el("option", { value: o }, `Top ${o}`); if (o === n) op.selected = true; sel.appendChild(op); });
+      if (!f.options.includes(n)) sel.prepend(Object.assign(el("option", { value: n }, `Top ${n}`), { selected: true }));
+      sel.onchange = () => refine({ top_n: +sel.value });
+      chip.append(sel, el("span", {}, f.label.replace(/^Top \d+\s*·?\s*/, "· ")));
+    } else {
+      chip.appendChild(el("span", {}, f.label));
+      if (f.removable) {
+        const x = el("button", { type: "button", "aria-label": `Quitar filtro ${f.label}` }, "×");
+        x.onclick = () => refine({ remove: f.key });
+        chip.appendChild(x);
+      }
+    }
+    box.appendChild(chip);
   });
 }
 
-// ---------- alerts (incident log) ----------
+// ---------- result: diverging bar chart / table ----------
+document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
+  view = b.dataset.view;
+  document.querySelectorAll("[data-view]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  if (last) renderResult(last);
+}));
+
+function chartSpec(r) {
+  const rows = (r.rows || []).filter((x) => x.zone);
+  if (!rows.length) return null;
+  const ctx = r.context || {};
+  const byChange = ctx.rank_by !== "value" && rows.some((x) => x.pct_change_wow != null) &&
+                   !(ctx.intent === "multivariable" || ctx.intent === "correlation");
+  const metric = rows[0].metric || ctx.metric;
+  return { rows, byChange, metric,
+           title: byChange ? `${metricLabel(metric)}: cambio vs semana anterior` : `${metricLabel(metric)}: valor esta semana` };
+}
+
+function renderResult(r) {
+  const area = $("chart-area");
+  area.querySelectorAll(".bars, table.data").forEach((n) => n.remove());
+  const spec = chartSpec(r);
+  $("chart-empty").style.display = spec ? "none" : "block";
+  if (!spec) {
+    $("chart-title").textContent = "Zonas de la respuesta";
+    $("chart-empty").textContent = r.rows_found ? "Esta respuesta no es un ranking de zonas, así que no hay gráfico." :
+      "Esta respuesta no trae zonas. Prueba con una de las sugerencias.";
+    return;
+  }
+  $("chart-title").textContent = spec.title;
+  area.appendChild(view === "table" ? dataTable(spec) : barChart(spec));
+}
+
+function barChart({ rows, byChange, metric }) {
+  const W = 640, rowH = 46, top = 8, labelW = 210, valW = 92;
+  const H = top + rows.length * rowH + 22;
+  const vals = rows.map((x) => byChange ? x.pct_change_wow ?? 0 : x.l0w_value ?? 0);
+  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  const plotL = labelW, plotR = W - valW, span = (hi - lo) || 1;
+  const xs = (v) => plotL + ((v - lo) / span) * (plotR - plotL);
+  const svg = svgEl("svg", { class: "bars", viewBox: `0 0 ${W} ${H}`, role: "img",
+                             "aria-label": `Gráfico de ${rows.length} zonas. Usa Tab para recorrerlas y Enter para ver el detalle.` });
+  svg.appendChild(svgEl("line", { class: "axis", x1: xs(0), x2: xs(0), y1: top - 4, y2: H - 18 }));
+  rows.forEach((row, i) => {
+    const v = vals[i], y = top + i * rowH, barH = 22, by = y + (rowH - barH) / 2;
+    const x0 = xs(Math.min(0, v)), w = Math.max(2, Math.abs(xs(v) - xs(0)));
+    const neg = v < 0;
+    const color = byChange ? (neg ? css("--drop") : css("--grow")) : css("--s1");
+    const g = svgEl("g", { class: "row", tabindex: 0, role: "button",
+                           "aria-label": `${row.zone}, ${row.city}: ${byChange ? fmtDelta(v) : fmtValue(v, metric)}` });
+    g.appendChild(svgEl("rect", { class: "hit", x: 0, y, width: W, height: rowH, fill: "transparent" }));
+    g.appendChild(svgEl("text", { x: 0, y: y + 21 }, row.zone));
+    g.appendChild(svgEl("text", { class: "sub", x: 0, y: y + 37 }, `${row.city} · ${META.country_names[row.country] || row.country}`));
+    // 4px rounded data-end, square at the baseline
+    const r4 = Math.min(4, w / 2);
+    const d = neg
+      ? `M${x0 + w},${by} H${x0 + r4} Q${x0},${by} ${x0},${by + r4} V${by + barH - r4} Q${x0},${by + barH} ${x0 + r4},${by + barH} H${x0 + w} Z`
+      : `M${x0},${by} H${x0 + w - r4} Q${x0 + w},${by} ${x0 + w},${by + r4} V${by + barH - r4} Q${x0 + w},${by + barH} ${x0 + w - r4},${by + barH} H${x0} Z`;
+    g.appendChild(svgEl("path", { d, fill: color }));
+    g.appendChild(svgEl("text", { class: "val", x: W, y: y + 28, "text-anchor": "end" }, byChange ? fmtDelta(v) : fmtValue(v, metric)));
+    g.addEventListener("pointermove", (e) => showTip(e, row, metric));
+    g.addEventListener("pointerleave", hideTip);
+    g.addEventListener("focus", () => showTip(null, row, metric, g));
+    g.addEventListener("blur", hideTip);
+    g.addEventListener("click", () => openZone(row.zone, row.country));
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openZone(row.zone, row.country); } });
+    svg.appendChild(g);
+  });
+  svg.appendChild(svgEl("text", { class: "sub", x: xs(0), y: H - 2, "text-anchor": "middle" }, "0"));
+  return svg;
+}
+
+function showTip(e, row, metric, anchor) {
+  const tip = $("tip"), area = $("chart-area").getBoundingClientRect();
+  const m = row.metric || metric;
+  tip.replaceChildren();
+  tip.appendChild(el("b", {}, row.pct_change_wow != null ? fmtDelta(row.pct_change_wow) : fmtValue(row.l0w_value, m)));
+  tip.appendChild(el("div", {}, `${row.zone} · ${row.city}`));
+  tip.appendChild(el("div", { class: "hint" }, `${metricLabel(m)}: ${fmtValue(row.l0w_value, m)} esta semana` +
+                                            (row.l1w_value != null ? `, ${fmtValue(row.l1w_value, m)} la anterior` : "")));
+  tip.appendChild(el("div", { class: "hint" }, "Clic para ver el detalle de la zona"));
+  tip.style.display = "block";
+  const rect = anchor ? anchor.getBoundingClientRect() : { left: e.clientX, top: e.clientY, height: 0 };
+  let x = (anchor ? rect.left + 220 : e.clientX + 14) - area.left, y = rect.top - area.top + (anchor ? rect.height : 14);
+  x = Math.max(8, Math.min(x, area.width - tip.offsetWidth - 8));
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { $("tip").style.display = "none"; }
+
+function dataTable({ rows, metric }) {
+  const t = el("table", { class: "data" });
+  const head = el("tr");
+  ["Zona", "Ciudad", "País", "Esta semana", "Cambio vs anterior"].forEach((h, i) => head.appendChild(el("th", i > 2 ? { class: "num" } : {}, h)));
+  t.appendChild(el("thead")).appendChild(head);
+  const tb = el("tbody");
+  rows.forEach((row) => {
+    const tr = el("tr", { tabindex: 0 });
+    [row.zone, row.city, META.country_names[row.country] || row.country].forEach((v) => tr.appendChild(el("td", {}, v)));
+    tr.appendChild(el("td", { class: "num" }, fmtValue(row.l0w_value, row.metric || metric)));
+    const d = el("td", { class: "num" }); d.appendChild(el("span", { class: "delta " + (row.pct_change_wow < 0 ? "down" : "up") }, fmtDelta(row.pct_change_wow)));
+    tr.appendChild(d);
+    tr.onclick = () => openZone(row.zone, row.country);
+    tr.onkeydown = (e) => { if (e.key === "Enter") openZone(row.zone, row.country); };
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  return t;
+}
+
+// ---------- zone drawer ----------
+let lastFocus = null, currentZone = null;
+async function openZone(zone, country) {
+  lastFocus = document.activeElement;
+  let z;
+  try { z = await api(`/api/zone-detail?zone=${encodeURIComponent(zone)}&country=${encodeURIComponent(country)}`); }
+  catch (e) { return; }
+  currentZone = z;
+  $("d-title").textContent = z.zone;
+  $("d-facts").textContent = [`${z.city}, ${META.country_names[z.country] || z.country}`, z.zone_type, z.priority].filter(Boolean).join(" · ");
+  drawSpark(z.orders?.timeseries || []);
+  const ul = $("d-metrics"); ul.replaceChildren();
+  const order = (m) => (m.metric === "Perfect Orders" ? 0 : 1);
+  [{ metric: "Orders", value: z.orders?.l0w, pct_wow: z.orders?.pct_wow }, ...[...z.metrics].sort((a, b) => order(a) - order(b))]
+    .forEach((m) => {
+      const li = el("li");
+      li.appendChild(el("span", {}, metricLabel(m.metric)));
+      li.appendChild(el("span", { class: "v" }, fmtValue(m.value, m.metric)));
+      li.appendChild(el("span", { class: "delta " + (m.pct_wow < 0 ? "down" : "up") }, fmtDelta(m.pct_wow)));
+      ul.appendChild(li);
+    });
+  $("drawer").classList.add("open"); $("scrim").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false");
+  $("d-close").focus();
+}
+function closeZone() {
+  $("drawer").classList.remove("open"); $("scrim").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true");
+  lastFocus?.focus?.();
+}
+$("d-close").onclick = closeZone; $("scrim").onclick = closeZone;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("drawer").classList.contains("open")) closeZone(); });
+$("d-ask").onclick = () => { const z = currentZone; closeZone(); openTab("ask"); ask(`¿Cómo va la zona ${z.zone} de ${z.city} en todas sus métricas?`); };
+$("d-city").onclick = async () => {
+  const z = currentZone; closeZone(); openTab("zones");
+  $("z-country").value = z.country; await loadCities(); $("z-city").value = z.city; $("z-metric").value = "Orders"; loadZone();
+};
+
+function drawSpark(vals) {
+  const svg = $("d-spark"); svg.replaceChildren();
+  if (!vals.length) return;
+  const W = 400, H = 120, pad = { l: 6, r: 60, t: 14, b: 22 };
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+  const x = (i) => pad.l + (i / (vals.length - 1)) * (W - pad.l - pad.r);
+  const y = (v) => pad.t + (1 - (v - lo) / span) * (H - pad.t - pad.b);
+  const pts = vals.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+  svg.appendChild(svgEl("polygon", { class: "area", points: `${x(0)},${H - pad.b} ${pts} ${x(vals.length - 1)},${H - pad.b}` }));
+  svg.appendChild(svgEl("polyline", { class: "ln", points: pts }));
+  const n = vals.length - 1;
+  svg.appendChild(svgEl("circle", { class: "dot", cx: x(n), cy: y(vals[n]), r: 4.5 }));
+  svg.appendChild(svgEl("text", { class: "end", x: x(n) + 8, y: y(vals[n]) + 4 }, nf(0).format(vals[n])));
+  svg.appendChild(svgEl("text", { x: pad.l, y: H - 4 }, "hace 8 sem."));
+  svg.appendChild(svgEl("text", { x: x(n), y: H - 4, "text-anchor": "end" }, "esta semana"));
+  svg.setAttribute("aria-label", `Pedidos semanales: de ${nf(0).format(vals[0])} a ${nf(0).format(vals[n])}`);
+}
+
+// ---------- history ----------
+function addHistory(q) {
+  $("history").hidden = false;
+  const li = el("li"); const b = el("button", { type: "button" }, q); b.onclick = () => ask(q); li.appendChild(b);
+  $("history-list").prepend(li);
+}
+
+// ---------- alerts ----------
+const TIPO = { anomaly: "Cambio brusco", trend: "Tendencia sostenida", benchmark: "Bajo su ciudad", opportunity: "Oportunidad" };
+const SEV = { high: "alta", medium: "media", low: "baja" };
 async function loadInsights() {
   const p = new URLSearchParams({ limit: 40 });
   if ($("f-sev").value) p.set("severity", $("f-sev").value);
   if ($("f-tipo").value) p.set("tipo", $("f-tipo").value);
   if ($("f-country").value) p.set("country", $("f-country").value);
   const r = await api("/api/insights?" + p);
-  const list = $("insight-list");
-  list.innerHTML = "";
-  if (!r.insights.length) {
-    list.innerHTML = '<li class="log-empty">No hay alertas con estos filtros. Prueba con otra severidad o país.</li>';
-    return;
-  }
+  const list = $("insight-list"); list.replaceChildren();
+  if (!r.insights.length) { list.appendChild(el("li", { class: "empty" }, "No hay alertas con estos filtros. Prueba con otra severidad o país.")); return; }
   r.insights.forEach((i) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="sev ${i.severity}" aria-hidden="true"></span>
-      <div><div class="where">${escapeHtml(i.zone)}, ${escapeHtml(i.city)}</div>
-        <p class="what">${escapeHtml(i.finding)}</p><p class="todo">${escapeHtml(i.recommendation)}</p></div>
-      <span class="tag">${TIPO[i.tipo] || i.tipo}<br>severidad ${SEV[i.severity] || i.severity}<br>${COUNTRY[i.country] || escapeHtml(i.country)}</span>`;
+    const li = el("li", { tabindex: 0 });
+    li.appendChild(el("span", { class: `sev ${i.severity}`, "aria-hidden": "true" }));
+    const mid = el("div");
+    mid.appendChild(el("div", { class: "where" }, `${i.zone}, ${i.city}`));
+    mid.appendChild(el("p", { class: "what" }, i.finding.split(i.metric).join(metricLabel(i.metric))));
+    mid.appendChild(el("p", { class: "todo" }, i.recommendation));
+    li.appendChild(mid);
+    const tag = el("span", { class: "tag" });
+    [TIPO[i.tipo] || i.tipo, `severidad ${SEV[i.severity] || i.severity}`, META.country_names[i.country] || i.country]
+      .forEach((t, k) => { if (k) tag.appendChild(el("br")); tag.appendChild(document.createTextNode(t)); });
+    li.appendChild(tag);
+    if (i.zone && i.country && i.country !== "GLOBAL") {
+      li.onclick = () => openZone(i.zone, i.country);
+      li.onkeydown = (e) => { if (e.key === "Enter") openZone(i.zone, i.country); };
+    }
     list.appendChild(li);
   });
 }
-function renderCounts(s) {
-  const items = [[s.by_severity.high || 0, "de severidad alta"], [s.by_type.anomaly || 0, "cambios bruscos"],
-                 [s.by_type.trend || 0, "tendencias sostenidas"], [s.by_type.opportunity || 0, "oportunidades"]];
-  $("counts").innerHTML = items.map(([v, l]) => `<div class="count"><b>${v}</b><span>${l}</span></div>`).join("");
-}
 ["f-sev", "f-tipo", "f-country"].forEach((id) => $(id).addEventListener("change", loadInsights));
 
-// ---------- zones ----------
-const ROUTES = ["#1f6fb2", "#c8323c", "#1e7f5c", "#b7791f", "#6b4fa3", "#3a4a50"];
+// ---------- trends ----------
+const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"];
 async function loadCities() {
   const r = await api("/api/cities?country=" + $("z-country").value);
-  $("z-city").innerHTML = r.cities.map((c) => `<option>${escapeHtml(c)}</option>`).join("");
+  $("z-city").replaceChildren(...r.cities.map((c) => el("option", { value: c }, c)));
 }
 async function loadZone() {
   const p = new URLSearchParams({ country: $("z-country").value, city: $("z-city").value, metric: $("z-metric").value, top_n: 6 });
   const r = await api("/api/analysis/timeseries-multi?" + p);
   charts.zone?.destroy();
-  $("zone-title").textContent = `${r.metric} en ${r.city}`;
+  $("zone-title").textContent = `${metricLabel(r.metric)} en ${r.city}`;
   const labels = (r.labels || []).map((l) => (l === "L0W" ? "Esta semana" : `Hace ${l.slice(1, -1)} sem.`));
-  charts.zone = new Chart($("zone-chart"), {
-    type: "line",
-    data: { labels, datasets: (r.series || []).map((s, i) => ({ label: s.zone, data: s.values, borderWidth: 2.5,
-      borderColor: ROUTES[i % ROUTES.length], backgroundColor: ROUTES[i % ROUTES.length], pointRadius: 2, tension: 0.2 })) },
-    options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { position: "bottom", labels: { color: css("--asphalt"), boxWidth: 12 } } },
-      scales: { x: axisStyle(), y: axisStyle() } },
-  });
+  const ds = (r.series || []).map((s, i) => ({ label: s.zone, data: s.values, borderWidth: 2, pointRadius: 0, pointHoverRadius: 5,
+    borderColor: css(SERIES[i % 6]), backgroundColor: css(SERIES[i % 6]), tension: 0.2 }));
+  const endLabels = { id: "endLabels", afterDatasetsDraw(c) {      // direct labels: identity is never color-alone
+    const { ctx } = c; ctx.save(); ctx.font = "500 12px Barlow, sans-serif"; ctx.fillStyle = css("--ink");
+    c.data.datasets.forEach((d, i) => { const m = c.getDatasetMeta(i); const pt = m.data[m.data.length - 1]; if (pt) ctx.fillText(d.label, pt.x + 6, pt.y + 4); });
+    ctx.restore(); } };
+  charts.zone = new Chart($("zone-chart"), { type: "line", data: { labels, datasets: ds }, plugins: [endLabels],
+    options: { maintainAspectRatio: false, layout: { padding: { right: 130 } }, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "bottom", labels: { color: css("--ink"), boxWidth: 14, boxHeight: 2 } },
+                 tooltip: { callbacks: { label: (c) => ` ${fmtValue(c.parsed.y, r.metric)}  ${c.dataset.label}` } } },
+      scales: { x: { ticks: { color: css("--muted") }, grid: { display: false } },
+                y: { ticks: { color: css("--muted"), callback: (v) => fmtValue(v, r.metric) }, grid: { color: css("--line") } } },
+      onClick: (_, els) => { if (els[0]) openZone(ds[els[0].datasetIndex].label, $("z-country").value); } } });
 }
 $("z-country").addEventListener("change", async () => { await loadCities(); loadZone(); });
 ["z-city", "z-metric"].forEach((id) => $(id).addEventListener("change", loadZone));
 
+// ---------- headline ----------
+async function loadHeadline(summary) {
+  const r = await api("/api/insights?tipo=anomaly&severity=high&limit=100");
+  const worst = r.insights.filter((i) => i.metric === "Orders" && i.evidence_value < 0).sort((a, b) => a.evidence_value - b.evidence_value)[0];
+  const h = $("headline"); h.replaceChildren();
+  if (worst) {
+    const b = el("button", { type: "button", title: "Ver detalle de la zona" }, `${worst.zone}, ${worst.city}`);
+    b.onclick = () => openZone(worst.zone, worst.country);
+    h.append(b, document.createTextNode(", perdió "), el("span", { class: "drop" }, `${nf(0).format(Math.abs(worst.evidence_value))} %`),
+             document.createTextNode(" de sus pedidos esta semana"));
+  } else h.textContent = "Ninguna zona tuvo una caída brusca de pedidos esta semana";
+  $("subline").textContent = `${summary.by_severity.high || 0} alertas de severidad alta en ${Object.keys(summary.by_country).filter((c) => c !== "GLOBAL").length} países. Toca la zona para ver su detalle, o pregunta abajo.`;
+}
+
+// ---------- first visit: the product demonstrates itself once ----------
+async function demo() {
+  const q = STARTERS[0];
+  if (reduced) return ask(q);
+  const input = $("q"); input.value = "";
+  for (const ch of q) { input.value += ch; await new Promise((r) => setTimeout(r, 18)); }
+  await new Promise((r) => setTimeout(r, 250));
+  ask(q);
+}
+
 // ---------- boot ----------
 (async () => {
   const [health, filters, summary] = await Promise.all([api("/health"), api("/api/filters"), api("/api/insights/summary")]);
+  META = { ...filters, chat: health.chat_enabled };
   if (!health.chat_enabled) { $("banner").style.display = "block"; $("send").disabled = true; }
-  addMsg("Pregunta en lenguaje natural. Cada respuesta se construye solo con las filas que devuelve la consulta, y el gráfico muestra esas mismas zonas.", "bot");
-  const opts = (xs, names) => xs.map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(names?.[x] || x)}</option>`).join("");
-  $("f-country").innerHTML += opts(filters.countries, COUNTRY);
-  $("z-country").innerHTML = opts(filters.countries, COUNTRY);
+  renderSuggestions(STARTERS);
+  const opt = (v, t) => el("option", { value: v }, t);
+  filters.countries.forEach((c) => $("f-country").appendChild(opt(c, META.country_names[c] || c)));
+  $("z-country").replaceChildren(...filters.countries.map((c) => opt(c, META.country_names[c] || c)));
   $("z-country").value = filters.countries.includes("CO") ? "CO" : filters.countries[0];
-  $("z-metric").innerHTML = opts(filters.metrics);
+  $("z-metric").replaceChildren(...filters.metrics.map((m) => opt(m, metricLabel(m))));
   $("z-metric").value = "Orders";
-  renderCounts(summary);
+  const counts = [[summary.by_severity.high || 0, "de severidad alta"], [summary.by_type.anomaly || 0, "cambios bruscos"],
+                  [summary.by_type.trend || 0, "tendencias sostenidas"], [summary.by_type.opportunity || 0, "oportunidades"]];
+  $("counts").replaceChildren(...counts.map(([v, l]) => { const d = el("div", { class: "count" }); d.append(el("b", {}, v), el("span", {}, l)); return d; }));
   loadHeadline(summary);
   await loadCities();
+  if (health.chat_enabled && !store.get("demo-done")) { store.set("demo-done", "1"); demo(); }
 })();
 </script>
 </body>

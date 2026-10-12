@@ -314,3 +314,26 @@ def test_exact_zone_in_text_overrides_shortened_extraction(client):
     fake.extraction["zona " + long_name] = json.dumps({"intent": "summary", "zone": short})
     r = c.post("/api/chat", json={"message": f"¿Cómo va la zona {long_name}?"}).json()
     assert r["context"]["zone"] == long_name
+
+
+def test_chat_returns_interactive_layer(client):
+    c, _ = client
+    r = c.post("/api/chat", json={"message": "Top 5 zonas con mayor caída de órdenes"}).json()
+    assert len(r["rows"]) == 5 and {"zone", "city", "country", "pct_change_wow"} <= r["rows"][0].keys()
+    labels = [f["label"] for f in r["filters"]]
+    assert "Pedidos" in labels and any(lab.startswith("Top 5") for lab in labels)
+    assert r["suggestions"] and all(isinstance(x, str) for x in r["suggestions"])
+
+
+def test_refine_removes_a_filter_and_changes_top_n(client):
+    c, fake = client
+    s = c.post("/api/chat", json={"message": "Venezuela"}).json()["session_id"]  # unknown country: no context
+    assert c.post("/api/refine", json={"session_id": s, "top_n": 3}).status_code == 404
+    s = c.post("/api/chat", json={"message": "Top 5 zonas con mayor caída de órdenes"}).json()["session_id"]
+    calls_before = len(fake.calls)
+    r = c.post("/api/refine", json={"session_id": s, "top_n": 10}).json()
+    assert len(r["rows"]) == 10 and r["context"]["top_n"] == 10
+    assert len(fake.calls) == calls_before + 1  # answer only: no extraction call
+    r = c.post("/api/refine", json={"session_id": s, "remove": "metric"}).json()
+    assert "metric" not in r["context"]
+    assert c.post("/api/refine", json={"session_id": s, "remove": "intent"}).status_code == 422
