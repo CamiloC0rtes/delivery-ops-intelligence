@@ -17,6 +17,7 @@ def client():
         "NPS": json.dumps({"intent": "filter", "metric": "NPS", "city": "Bogota"}),
         "Narnia": json.dumps({"intent": "summary", "metric": "Orders", "zone": "Narnia Central"}),
         "llover": json.dumps({"intent": "out_of_scope"}),
+        "NPS de las zonas": json.dumps({"intent": "out_of_scope"}),
         "más pedidos": json.dumps({"intent": "ranking", "metric": "Orders"}),
         "cuántas zonas": json.dumps({"intent": "summary"}),
         "Guadalajara": json.dumps({"city": "Guadalajara", "is_new_topic": False}),
@@ -174,3 +175,45 @@ def test_nan_never_breaks_json():
     from app import _json_safe
 
     assert _json_safe({"a": [float("nan"), 1.0, {"b": float("inf")}]}) == {"a": [None, 1.0, {"b": None}]}
+
+
+def test_out_of_scope_is_overridden_when_the_question_is_about_operations(client):
+    # Regression (eval run 5): "NPS de las zonas" / "caídas en Venezuela" got the generic brush-off
+    c, _ = client
+    r = c.post("/api/chat", json={"message": "¿Cuál es el NPS de las zonas?"}).json()
+    assert r["answer"] != app_module.OUT_OF_SCOPE_ANSWER
+
+
+def test_follow_up_keeps_rank_by_from_context(client):
+    # Regression: "mayor caída" then "¿y en Perfect Orders?" switched to ranking by level
+    c, _ = client
+    s = c.post("/api/chat", json={"message": "Top 5 zonas con mayor caída de órdenes"}).json()["session_id"]
+    r = c.post("/api/chat", json={"message": "¿y en Perfect Orders?", "session_id": s}).json()
+    assert r["context"]["rank_by"] == "change" and r["context"]["metric"] == "Perfect Orders"
+
+
+def test_foreign_zone_names_trigger_one_corrective_retry():
+    calls = []
+
+    class Shortener:
+        chat = completions = None
+
+        def __init__(self):
+            self.chat = self
+            self.completions = self
+
+        def create(self, model, messages, **kw):
+            calls.append(messages)
+            text = "Los Eucaliptos lidera" if len(calls) == 1 else "Los Eucaliptos Alto lidera"
+            return type("R", (), {"choices": [type("C", (), {"message": type("M", (), {"content": text})})]})
+
+    zones = {"Los Eucaliptos", "Los Eucaliptos Alto", "Las Brisas"}
+    out = app_module.generate_answer("q", "datos", {}, [], Shortener(), ["Los Eucaliptos Alto"], zones)
+    assert out == "Los Eucaliptos Alto lidera" and len(calls) == 2
+    assert "Los Eucaliptos" in calls[1][-1]["content"]
+
+
+def test_foreign_zones_prefers_longest_names():
+    zones = {"Los Cedros", "Los Cedros Norte"}
+    assert app_module.foreign_zones("Los Cedros Norte cae", ["Los Cedros Norte"], zones) == []
+    assert app_module.foreign_zones("Los Cedros cae", ["Los Cedros Norte"], zones) == ["Los Cedros"]
