@@ -8,7 +8,7 @@
 {"id": "correlation", "question": "¿Qué métricas están más correlacionadas entre sí?", "expect": {"intent": "correlation"}, "mention_top": 0}
 {"id": "best_profit_zone", "question": "Top 3 zonas con mayor ganancia por orden en Mexico", "expect": {"metric": "Gross Profit per Order", "country": "MX", "top_n": 3, "rank_by": "value"}, "mention_top": 2}
 {"id": "zone_detail", "question": "¿Cómo va Perfect Orders en la zona Los Cedros de Medellin?", "expect": {"metric": "Perfect Orders", "zone": "Los Cedros", "city": "Medellin"}, "mention_top": 1}
-{"id": "high_priority_filter", "question": "Zonas High Priority en Brasil con peor Perfect Orders, top 5", "expect": {"metric": "Perfect Orders", "country": "BR", "priority": "High Priority", "top_n": 5, "rank_by": "value"}, "mention_top": 2}
+{"id": "high_priority_filter", "question": "Zonas High Priority en Brasil con peor Perfect Orders, top 5", "expect": {"metric": "Perfect Orders", "country": "BR", "priority": "High Priority", "top_n": 5, "rank_by": "value", "sort_order": "asc"}, "mention_top": 2}
 {"id": "follow_up_country", "question": "¿Y en Argentina?", "after": "¿Cuáles son las 5 zonas con mayor caída de órdenes esta semana?", "expect": {"metric": "Orders", "country": "AR", "top_n": 5, "sort_order": "asc"}, "mention_top": 2}
 {"id": "unknown_country", "question": "Top 5 zonas con mayor caída de órdenes en Venezuela", "refusal": true, "answer_contains": ["Venezuela", "Colombia"], "max_rows": 0}
 {"id": "unknown_metric", "question": "¿Cuál es el NPS de las zonas de Bogota?", "refusal": true, "answer_contains": ["NPS", "Perfect Orders"], "max_rows": 0}

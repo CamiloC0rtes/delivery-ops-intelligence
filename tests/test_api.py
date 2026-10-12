@@ -204,16 +204,35 @@ def test_foreign_zone_names_trigger_one_corrective_retry():
 
         def create(self, model, messages, **kw):
             calls.append(messages)
-            text = "Los Eucaliptos lidera" if len(calls) == 1 else "Los Eucaliptos Alto lidera"
+            # "Las Brisas" is a real zone outside the result and not a prefix of it: not repairable
+            text = "Las Brisas lidera" if len(calls) == 1 else "Los Eucaliptos Alto lidera"
             return type("R", (), {"choices": [type("C", (), {"message": type("M", (), {"content": text})})]})
 
     zones = {"Los Eucaliptos", "Los Eucaliptos Alto", "Las Brisas"}
     out = app_module.generate_answer("q", "datos", {}, [], Shortener(), ["Los Eucaliptos Alto"], zones)
     assert out == "Los Eucaliptos Alto lidera" and len(calls) == 2
-    assert "Los Eucaliptos" in calls[1][-1]["content"]
+    assert "Las Brisas" in calls[1][-1]["content"]
 
 
 def test_foreign_zones_prefers_longest_names():
     zones = {"Los Cedros", "Los Cedros Norte"}
     assert app_module.foreign_zones("Los Cedros Norte cae", ["Los Cedros Norte"], zones) == []
     assert app_module.foreign_zones("Los Cedros cae", ["Los Cedros Norte"], zones) == ["Los Cedros"]
+
+
+def test_repair_restores_full_zone_name_without_touching_correct_ones():
+    zones = {"Los Eucaliptos", "Los Eucaliptos Alto", "Las Colinas Sur"}
+    fixed = app_module.repair_zone_names(
+        "1. Los Eucaliptos, Rio: 0.20 2. Las Colinas Sur", ["Los Eucaliptos Alto", "Las Colinas Sur"], zones)
+    assert fixed == "1. Los Eucaliptos Alto, Rio: 0.20 2. Las Colinas Sur"
+    already = "Los Eucaliptos Alto lidera"
+    assert app_module.repair_zone_names(already, ["Los Eucaliptos Alto"], zones) == already
+
+
+def test_follow_up_without_ranking_words_ignores_model_rank_by(client):
+    c, fake = client
+    fake.extraction["¿y en Perfect Orders?"] = json.dumps(
+        {"metric": "Perfect Orders", "rank_by": "value", "is_new_topic": False})
+    s = c.post("/api/chat", json={"message": "Top 5 zonas con mayor caída de órdenes"}).json()["session_id"]
+    r = c.post("/api/chat", json={"message": "¿y en Perfect Orders?", "session_id": s}).json()
+    assert r["context"]["rank_by"] == "change"

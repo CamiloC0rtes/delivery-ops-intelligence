@@ -261,6 +261,21 @@ def foreign_zones(answer: str, result_zones: list[str], all_zones: set[str]) -> 
     return [z for z in found if z not in allowed]
 
 
+def repair_zone_names(answer: str, result_zones: list[str], all_zones: set[str]) -> str:
+    """Fix the model shortening a result zone into another real zone's name.
+
+    "Los Eucaliptos Alto" (in the result) written as "Los Eucaliptos" (a different zone, another
+    city): when exactly one result zone extends the foreign name, restore the full name. Survived
+    both a prompt rule and a corrective retry, so it is fixed deterministically.
+    """
+    for bad in foreign_zones(answer, result_zones, all_zones):
+        longer = [z for z in result_zones if z.startswith(bad + " ")]
+        if len(longer) == 1:
+            full = longer[0]
+            answer = re.sub(rf"{re.escape(bad)}(?!{re.escape(full[len(bad):])})", full, answer)
+    return answer
+
+
 def _complete(client: OpenAI, messages: list) -> str:
     try:
         resp = client.chat.completions.create(model=MODEL, max_tokens=900, messages=messages)
@@ -282,6 +297,8 @@ def generate_answer(message: str, data_text: str, context: dict, bot_history: li
                 + bot_history[-4:]
                 + [{"role":"user","content":augmented}])
     answer = _complete(client, messages)
+    if result_zones and all_zones:
+        answer = repair_zone_names(answer, result_zones, all_zones)
     if result_zones and all_zones and (bad := foreign_zones(answer, result_zones, all_zones)):
         # One corrective retry: an instruction in the prompt alone did not stop this
         log.warning("Answer named zones outside the result %s; retrying once", bad)
@@ -394,6 +411,10 @@ def mentions_operations(message: str) -> bool:
     return bool(_OPERATIONS_WORDS.search(message))
 
 
+_RANK_WORDS = re.compile(r"\bm[aá]s\b|\bmenos\b|mayor|menor|mejor|peor|top|ranking|primer|[uú]ltim|"
+                         r"ca[ií]d|cay|baj|crec|sub|aument|disminu|most|least|best|worst", re.I)
+
+
 def rank_by_from_text(message: str) -> str:
     """'más pedidos' ranks by level; 'mayor caída/crecimiento' ranks by week-over-week change."""
     return "change" if _CHANGE_WORDS.search(message) else "value"
@@ -424,8 +445,13 @@ async def chat(req: ChatRequest):
     if entities.get("intent") == "out_of_scope" and mentions_operations(message):
         # The model over-applies out_of_scope to "NPS de Bogotá" or "caídas en Venezuela":
         # those are about the data, and deserve "no tengo esa métrica/país", not a brush-off.
-        log.info("out_of_scope overridden: message is about operations")
-        entities["intent"] = "summary"
+        log.info("out_of_scope overridden: message is about operations; re-extracting")
+        entities = extract_entities(
+            message + "\n(Nota del sistema: la pregunta SÍ es sobre operaciones. Extrae los filtros, "
+            "incluyendo países, métricas o zonas que no estén en las listas; no uses out_of_scope.)",
+            prev_questions, session["context"], client)
+        if entities.get("intent") in (None, "out_of_scope"):
+            entities["intent"] = "summary"
     if entities.get("intent") == "out_of_scope":
         return finish(session, session_id, message, OUT_OF_SCOPE_ANSWER)
 
@@ -437,6 +463,8 @@ async def chat(req: ChatRequest):
     if not entities.get("top_n") and (n := top_n_from_text(message)):
         entities["top_n"] = n
     is_new_topic = entities.pop("is_new_topic", not prev_questions)
+    if not is_new_topic and "rank_by" in entities and not _RANK_WORDS.search(message):
+        entities.pop("rank_by")  # "¿y en Perfect Orders?" changes the metric, not how we rank
     inherited = None if is_new_topic else session["context"].get("rank_by")
     if not entities.get("rank_by") and not inherited and (entities.get("top_n") or entities.get("intent") == "ranking"):
         entities["rank_by"] = rank_by_from_text(message)
