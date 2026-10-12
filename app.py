@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from pydantic import BaseModel, Field, field_validator
 
-from catalog import COUNTRIES, METRICS, all_cities, resolve_country
+from catalog import CONCEPTS, COUNTRIES, METRICS, all_cities, resolve_country
 from data_loader import load_excel
 from entities import parse_llm_json
 from insights import Insight, run_all
@@ -423,6 +423,35 @@ def unknown_country_in_text(message: str) -> str | None:
     return next((c for c in _OTHER_COUNTRIES if re.search(rf"\b{re.escape(_norm_text(c))}\b", text)), None)
 
 
+def _longest_matches(text: str, phrases: dict[str, str]) -> list[str]:
+    """Values of the phrases found in text, longest first, ignoring phrases inside a longer match.
+
+    "órdenes perfectas" must count as Perfect Orders only, not also as Orders ("órdenes").
+    """
+    found, rest = [], f" {_norm_text(text)} "
+    for phrase in sorted(phrases, key=len, reverse=True):
+        pattern = rf"(?<![a-z0-9]){re.escape(_norm_text(phrase))}(?![a-z0-9])"
+        if re.search(pattern, rest):
+            found.append(phrases[phrase])
+            rest = re.sub(pattern, " ", rest)
+    return list(dict.fromkeys(found))
+
+
+def metrics_in_text(message: str) -> list[str]:
+    phrases = {alias: name for name, info in METRICS.items() for alias in info["aliases"] + [name]}
+    return _longest_matches(message, phrases)
+
+
+def concept_in_text(message: str) -> str | None:
+    hits = _longest_matches(message, {c: c for c in CONCEPTS})
+    return hits[0] if len(hits) == 1 else None
+
+
+def zone_in_text(message: str, orders: pd.DataFrame) -> str | None:
+    hits = _longest_matches(message, {z: z for z in orders["ZONE"].unique()})
+    return hits[0] if len(hits) == 1 else None
+
+
 def city_in_text(message: str) -> str | None:
     text = _norm_text(message)
     hits = [c for c in all_cities() if re.search(rf"\b{re.escape(_norm_text(c))}\b", text)]
@@ -486,9 +515,19 @@ async def chat(req: ChatRequest):
     if entities.get("intent") == "out_of_scope":
         return finish(session, session_id, message, OUT_OF_SCOPE_ANSWER)
 
-    # Deterministic backstops for what the extractor drops (seen with "¿NPS de las zonas de Bogotá?")
+    # Deterministic backstops for what the extractor drops or confuses (all found by the stress test)
+    if not entities.get("zone") and (zone := zone_in_text(message, DATA["orders_long"])):
+        entities["zone"] = zone
     if not any(entities.get(k) for k in ("city", "zone", "country")) and (city := city_in_text(message)):
         entities["city"] = city
+    if (concept := concept_in_text(message)) and not entities.get("concept"):
+        entities["concept"] = concept
+    if entities.get("intent") != "multivariable":
+        named = metrics_in_text(message)
+        if len(named) == 1 and entities.get("metric") not in named:
+            if entities.get("metric"):
+                log.info("metric %r overridden by the one named in the text: %r", entities["metric"], named[0])
+            entities["metric"] = named[0]
     if (kpi := unsupported_kpi_in_text(message)) and not entities.get("metric"):
         entities.setdefault("unresolved", {})["metric"] = kpi
     if (other := unknown_country_in_text(message)) and not entities.get("country"):

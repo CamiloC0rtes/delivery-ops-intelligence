@@ -270,3 +270,37 @@ def test_ranking_answers_get_population_stats(client, data):
 def test_index_is_not_cached(client):
     c, _ = client
     assert c.get("/").headers["cache-control"] == "no-cache"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("¿Qué zonas de Peru tienen peor órdenes?", ["Orders"]),
+    ("zonas con órdenes perfectas bajas", ["Perfect Orders"]),
+    ("Compara promociones entre Wealthy y Non Wealthy", ["Markdowns / GMV"]),
+    ("alta penetración pero bajo Perfect Orders", ["Perfect Orders", "Lead Penetration"]),
+    ("¿cómo va Bogota?", []),
+])
+def test_metrics_in_text_uses_longest_match(text, expected):
+    assert sorted(app_module.metrics_in_text(text)) == sorted(expected)
+
+
+@pytest.mark.parametrize("text,concept", [
+    ("¿Qué zonas tienen bajo performance en markdowns?", "bajo performance"),
+    ("Zonas de Brasil con alto crecimiento de pedidos", "alto crecimiento"),
+    ("top 5 zonas que más crecieron", None),
+])
+def test_concept_in_text(text, concept):
+    assert app_module.concept_in_text(text) == concept
+
+
+def test_zone_in_text_prefers_longest(data):
+    o = data["orders_long"]
+    assert app_module.zone_in_text("dime cómo va Los Cedros Norte", o) == "Los Cedros Norte"
+    assert app_module.zone_in_text("y Los Cedros?", o) == "Los Cedros"
+    assert app_module.zone_in_text("las zonas de Bogota", o) is None
+
+
+def test_backstops_fix_concept_metric_and_zone(client):
+    c, fake = client
+    fake.extraction["bajo performance"] = json.dumps({"intent": "ranking", "metric": "Perfect Orders", "sort_order": "asc"})
+    r = c.post("/api/chat", json={"message": "¿Qué zonas tienen bajo performance en markdowns?"}).json()
+    assert r["context"]["concept"] == "bajo performance" and r["context"]["metric"] == "Markdowns / GMV"

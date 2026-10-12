@@ -8,6 +8,9 @@ on:
       n:
         description: "Questions per seed"
         default: "150"
+      seeds:
+        description: "JSON list of seeds (new seeds = new questions)"
+        default: "[1, 2]"
 
 jobs:
   stress:
@@ -15,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        seed: [1, 2]
+        seed: ${{ fromJSON(inputs.seeds) }}
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
