@@ -250,3 +250,10 @@ def test_unsupported_kpi_and_city_backstops_when_extractor_drops_them(client):
                                         ("Bogota vs Cali", None), ("en Narnia", None)])
 def test_city_in_text(text, city):
     assert app_module.city_in_text(text) == city
+
+
+def test_unknown_country_backstop(client):
+    c, fake = client
+    fake.extraction["Uruguay"] = json.dumps({"intent": "ranking", "metric": "Orders", "top_n": 5})
+    r = c.post("/api/chat", json={"message": "Top 5 caídas de órdenes en Uruguay"}).json()
+    assert "«Uruguay»" in r["answer"] and r["rows_found"] == 0

@@ -411,6 +411,17 @@ def unsupported_kpi_in_text(message: str) -> str | None:
     return m.group(1) if m else None
 
 
+_OTHER_COUNTRIES = ["Venezuela", "Ecuador", "Uruguay", "Paraguay", "Bolivia", "Panamá", "Costa Rica",
+                    "Guatemala", "Honduras", "El Salvador", "Nicaragua", "República Dominicana", "Cuba",
+                    "Puerto Rico", "España", "Estados Unidos", "Canadá", "Portugal", "Francia", "Italia"]
+
+
+def unknown_country_in_text(message: str) -> str | None:
+    """Countries people ask about that are not in the dataset; the extractor sometimes drops them."""
+    text = _norm_text(message)
+    return next((c for c in _OTHER_COUNTRIES if re.search(rf"\b{re.escape(_norm_text(c))}\b", text)), None)
+
+
 def city_in_text(message: str) -> str | None:
     text = _norm_text(message)
     hits = [c for c in all_cities() if re.search(rf"\b{re.escape(_norm_text(c))}\b", text)]
@@ -479,6 +490,8 @@ async def chat(req: ChatRequest):
         entities["city"] = city
     if (kpi := unsupported_kpi_in_text(message)) and not entities.get("metric"):
         entities.setdefault("unresolved", {})["metric"] = kpi
+    if (other := unknown_country_in_text(message)) and not entities.get("country"):
+        entities.setdefault("unresolved", {})["country"] = other
     missing = unresolved_filters(entities, DATA)
     if missing:
         return finish(session, session_id, message, not_found_answer(missing))
