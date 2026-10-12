@@ -52,3 +52,28 @@ def test_zone_type(raw, expected):
 def test_as_context_drops_nones():
     assert Entities(intent="ranking", metric="Orders").as_context() == {
         "intent": "ranking", "metric": "Orders", "sort_order": "desc"}
+
+
+@pytest.mark.parametrize("raw", [
+    '{"intent":"filter","metric":"deterioro sostenido"}',
+    '{"intent":"filter","metric":["Perfect Orders","deterioro sostenido"]}',
+    '{"intent":"filter","metric":"Perfect Orders","metric_low":"deterioro sostenido"}',
+    '{"intent":"filter","metric":"Perfect Orders","metric_high":"deterioro"}',
+])
+def test_concepts_in_metric_fields_are_not_unknown_metrics(raw):
+    # Regression (live UI): "¿Qué zonas tienen deterioro sostenido en Perfect Orders?" answered
+    # "no tengo datos para la métrica «deterioro sostenido»"
+    e = parse_llm_json(raw)
+    assert e.unresolved == {}
+    assert e.metric in ("Perfect Orders", None)
+    if "deterioro sostenido" in raw:
+        assert e.concept == "deterioro sostenido"
+
+
+def test_metric_list_takes_the_first_valid_metric():
+    assert parse_llm_json('{"metric":["NPS","pedidos"]}').metric == "Orders"
+
+
+def test_multivariable_keeps_its_metrics():
+    e = parse_llm_json('{"intent":"multivariable","metric_high":"Lead Penetration","metric_low":"NPS"}')
+    assert e.metric_high == "Lead Penetration" and e.unresolved == {"metric_low": "NPS"}

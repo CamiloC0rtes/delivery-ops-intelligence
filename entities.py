@@ -49,8 +49,8 @@ class Entities(BaseModel):
     @field_validator("metric", "metric_high", "metric_low", mode="before")
     @classmethod
     def _metric(cls, v):
-        if isinstance(v, list):  # LLMs sometimes return ["Orders"]
-            v = v[0] if v else None
+        if isinstance(v, list):  # LLMs sometimes return ["Orders"] or ["Perfect Orders", "deterioro sostenido"]
+            return next((m for m in map(resolve_metric, v) if m), None)
         return resolve_metric(v) if v else None
 
     @field_validator("country", mode="before")
@@ -133,6 +133,25 @@ class Entities(BaseModel):
                 if v is not None and k not in ("is_new_topic", "unresolved")}
 
 
+def _move_concepts_out_of_metrics(fields: dict) -> dict:
+    """The extractor sometimes puts a concept ("deterioro sostenido") in a metric field.
+
+    That is a filter, not an unknown metric: move it to `concept` instead of answering
+    "no tengo datos para la métrica «deterioro sostenido»".
+    """
+    fields = dict(fields)
+    for key in ("metric", "metric_high", "metric_low"):
+        value = fields.get(key)
+        items = value if isinstance(value, list) else [value]
+        concepts = [v for v in items if isinstance(v, str) and v.strip().lower() in CONCEPTS]
+        if not concepts:
+            continue
+        fields.setdefault("concept", concepts[0].strip().lower())
+        rest = [v for v in items if v not in concepts]
+        fields[key] = (rest if isinstance(value, list) else rest[0]) if rest else None
+    return fields
+
+
 def parse_llm_json(raw: str) -> Entities:
     """Parse the extractor's output. Malformed JSON -> safe defaults, never an exception."""
     text = (raw or "").strip().replace("```json", "").replace("```", "").strip()
@@ -144,11 +163,15 @@ def parse_llm_json(raw: str) -> Entities:
     except (ValueError, json.JSONDecodeError):
         return Entities(intent="summary")
     fields = {k: v for k, v in data.items() if k in Entities.model_fields and k != "unresolved"}
+    fields = _move_concepts_out_of_metrics(fields)
+    if fields.get("intent") != "multivariable":
+        # metric_high/metric_low only mean something in "alto X pero bajo Y" questions
+        fields.pop("metric_high", None)
+        fields.pop("metric_low", None)
     entities = Entities(**fields)
     unresolved = {
         k: str(fields[k]).strip() for k in ("metric", "metric_high", "metric_low", "country")
         if fields.get(k) not in (None, "", []) and getattr(entities, k) is None
-        and not (isinstance(fields[k], list) and getattr(entities, k))
     }
     if unresolved:
         entities.unresolved = unresolved

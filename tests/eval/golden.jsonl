@@ -20,3 +20,4 @@
 {"id": "typos", "question": "top 5 sonas con mallor caida de hordenes en colonbia", "expect": {"metric": "Orders", "country": "CO", "top_n": 5, "sort_order": "asc"}, "mention_top": 3}
 {"id": "english", "question": "Which 3 zones grew the most in orders?", "expect": {"metric": "Orders", "top_n": 3, "sort_order": "desc"}, "mention_top": 3}
 {"id": "chain_metric_then_city", "question": "ahora solo Guadalajara", "after": ["Top 3 zonas con mayor caída de órdenes en México", "¿y en Perfect Orders?"], "expect": {"metric": "Perfect Orders", "country": "MX", "city": "Guadalajara", "top_n": 3, "sort_order": "asc", "rank_by": "change"}, "mention_top": 2}
+{"id": "sustained_decline_alt", "question": "¿Qué zonas de Colombia vienen en deterioro sostenido de Perfect Orders?", "expect": {"metric": "Perfect Orders", "country": "CO", "concept": "deterioro sostenido"}, "mention_top": 0}

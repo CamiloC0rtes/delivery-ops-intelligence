@@ -36,7 +36,7 @@ The LLM never computes numbers and never writes code. It only (1) turns the ques
 
 ## Evaluation
 
-`tests/eval/golden.jsonl` holds 22 questions: 12 regular ones (rankings, filters, comparisons, multi-metric, correlations, follow-ups) and 10 adversarial ones (a country, metric or zone that doesn't exist, typos, English, a prompt-injection attempt, an off-topic question, counts and averages, a three-turn follow-up chain). For each one the eval checks:
+`tests/eval/golden.jsonl` holds 23 questions: 13 regular ones (rankings, filters, comparisons, multi-metric, correlations, follow-ups) and 10 adversarial ones (a country, metric or zone that doesn't exist, typos, English, a prompt-injection attempt, an off-topic question, counts and averages, a three-turn follow-up chain). For each one the eval checks:
 
 | Check | Question it answers |
 |---|---|
@@ -98,7 +98,7 @@ DATA_FILE=path/to/your.xlsx python app.py  # run on your own data with the same 
 
 ```bash
 pip install -r requirements-dev.txt
-pytest          # 103 tests, LLM mocked — runs in CI on every push
+pytest          # 109 tests, LLM mocked — runs in CI on every push
 ```
 
 They cover the validation layer (garbage JSON, unknown values, clamping), query results against pandas, the generator's schema and planted patterns, every API endpoint, the chat flow with a fake LLM, and the eval's own scoring.
