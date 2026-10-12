@@ -22,6 +22,7 @@ def client():
         "cuántas zonas": json.dumps({"intent": "summary"}),
         "Guadalajara": json.dumps({"city": "Guadalajara", "is_new_topic": False}),
         "Perfect Orders?": json.dumps({"metric": "Perfect Orders", "is_new_topic": False}),
+        "Wealthy": json.dumps({"intent": "comparison", "metric": "Perfect Orders", "zone_type": "comparison"}),
     })
     app_module.DATA["client"] = fake
     with TestClient(app_module.app) as c:
@@ -337,3 +338,22 @@ def test_refine_removes_a_filter_and_changes_top_n(client):
     r = c.post("/api/refine", json={"session_id": s, "remove": "metric"}).json()
     assert "metric" not in r["context"]
     assert c.post("/api/refine", json={"session_id": s, "remove": "intent"}).status_code == 422
+
+
+def test_comparison_returns_group_rows_and_readable_values(client):
+    # Regression: Wealthy vs Non Wealthy showed "no es un ranking de zonas" and the answer said 0.8647
+    c, fake = client
+    r = c.post("/api/chat", json={"message": "compara Perfect Orders entre Wealthy y Non Wealthy"}).json()
+    assert {row["group"] for row in r["rows"]} == {"Wealthy", "Non Wealthy"}
+    assert all(row["n_zonas"] > 0 for row in r["rows"])
+    sent = fake.calls[-1][-1]["content"]
+    assert " %" in sent and "0.86" not in sent
+    assert any("Non Wealthy" in s for s in r["suggestions"])
+
+
+@pytest.mark.parametrize("metric,value,expected", [
+    ("Perfect Orders", 0.8647, "86,5 %"), ("Orders", 1088.0, "1.088"),
+    ("Gross Profit per Order", 1.1407, "1,14"), ("Perfect Orders", float("nan"), "s/d"),
+])
+def test_fmt_metric(metric, value, expected):
+    assert app_module.fmt_metric(metric, value) == expected

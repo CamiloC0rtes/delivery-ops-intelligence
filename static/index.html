@@ -91,6 +91,7 @@
   .chart-area { padding: 6px 18px 18px; position: relative; }
   .bars { width: 100%; display: block; overflow: visible; }
   .bars .row { cursor: pointer; }
+  .bars .row.static { cursor: default; }
   .bars .row:focus { outline: none; }
   .bars .row:focus .hit, .bars .row:hover .hit { fill: var(--raised); }
   .bars text { fill: var(--ink); font: 500 14px var(--body); }
@@ -368,7 +369,9 @@ function renderAnswer(r) {
     const body = el("div", { class: "body" }); body.innerHTML = md([detail, rest].filter(Boolean).join("\n\n"));
     d.appendChild(body); box.appendChild(d);
   }
-  if (r.rows_found) box.appendChild(el("div", { class: "meta" }, `Calculado sobre ${r.rows_found} ${r.rows_found === 1 ? "registro" : "registros"} de los datos.`));
+  const groups = (r.rows || []).filter((x) => x.group);
+  if (groups.length) box.appendChild(el("div", { class: "meta" }, `Promedios calculados sobre ${groups.reduce((n, g) => n + (g.n_zonas || 0), 0)} zonas.`));
+  else if (r.rows_found) box.appendChild(el("div", { class: "meta" }, `Calculado sobre ${r.rows_found} ${r.rows_found === 1 ? "registro" : "registros"} de los datos.`));
 }
 
 function renderFilters(filters) {
@@ -403,9 +406,15 @@ document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("clic
 }));
 
 function chartSpec(r) {
+  const ctx = r.context || {};
+  const groups = (r.rows || []).filter((x) => x.group);
+  if (groups.length) {  // Wealthy vs Non Wealthy: one bar per group, level not change
+    const metric = groups[0].metric || ctx.metric;
+    return { rows: groups, byChange: false, metric, grouped: true,
+             title: `${metricLabel(metric)}: promedio por tipo de zona` };
+  }
   const rows = (r.rows || []).filter((x) => x.zone);
   if (!rows.length) return null;
-  const ctx = r.context || {};
   const byChange = ctx.rank_by !== "value" && rows.some((x) => x.pct_change_wow != null) &&
                    !(ctx.intent === "multivariable" || ctx.intent === "correlation");
   const metric = rows[0].metric || ctx.metric;
@@ -428,7 +437,7 @@ function renderResult(r) {
   area.appendChild(view === "table" ? dataTable(spec) : barChart(spec));
 }
 
-function barChart({ rows, byChange, metric }) {
+function barChart({ rows, byChange, metric, grouped }) {
   const W = 640, rowH = 46, top = 8, labelW = 210, valW = 92;
   const H = top + rows.length * rowH + 22;
   const vals = rows.map((x) => byChange ? x.pct_change_wow ?? 0 : x.l0w_value ?? 0);
@@ -436,18 +445,22 @@ function barChart({ rows, byChange, metric }) {
   const plotL = labelW, plotR = W - valW, span = (hi - lo) || 1;
   const xs = (v) => plotL + ((v - lo) / span) * (plotR - plotL);
   const svg = svgEl("svg", { class: "bars", viewBox: `0 0 ${W} ${H}`, role: "img",
-                             "aria-label": `Gráfico de ${rows.length} zonas. Usa Tab para recorrerlas y Enter para ver el detalle.` });
+                             "aria-label": grouped ? `Gráfico de ${rows.length} grupos de zonas.`
+                               : `Gráfico de ${rows.length} zonas. Usa Tab para recorrerlas y Enter para ver el detalle.` });
   svg.appendChild(svgEl("line", { class: "axis", x1: xs(0), x2: xs(0), y1: top - 4, y2: H - 18 }));
   rows.forEach((row, i) => {
     const v = vals[i], y = top + i * rowH, barH = 22, by = y + (rowH - barH) / 2;
     const x0 = xs(Math.min(0, v)), w = Math.max(2, Math.abs(xs(v) - xs(0)));
     const neg = v < 0;
     const color = byChange ? (neg ? css("--drop") : css("--grow")) : css("--s1");
-    const g = svgEl("g", { class: "row", tabindex: 0, role: "button",
-                           "aria-label": `${row.zone}, ${row.city}: ${byChange ? fmtDelta(v) : fmtValue(v, metric)}` });
+    const name = grouped ? row.group : row.zone;
+    const sub = grouped ? `${row.n_zonas} zonas · ${fmtDelta(row.pct_change_wow)} vs semana anterior`
+                        : `${row.city} · ${META.country_names[row.country] || row.country}`;
+    const g = svgEl("g", { class: "row" + (grouped ? " static" : ""), tabindex: 0, role: grouped ? "img" : "button",
+                           "aria-label": `${name}, ${sub}: ${byChange ? fmtDelta(v) : fmtValue(v, metric)}` });
     g.appendChild(svgEl("rect", { class: "hit", x: 0, y, width: W, height: rowH, fill: "transparent" }));
-    g.appendChild(svgEl("text", { x: 0, y: y + 21 }, row.zone));
-    g.appendChild(svgEl("text", { class: "sub", x: 0, y: y + 37 }, `${row.city} · ${META.country_names[row.country] || row.country}`));
+    g.appendChild(svgEl("text", { x: 0, y: y + 21 }, name));
+    g.appendChild(svgEl("text", { class: "sub", x: 0, y: y + 37 }, sub));
     // 4px rounded data-end, square at the baseline
     const r4 = Math.min(4, w / 2);
     const d = neg
@@ -459,8 +472,10 @@ function barChart({ rows, byChange, metric }) {
     g.addEventListener("pointerleave", hideTip);
     g.addEventListener("focus", () => showTip(null, row, metric, g));
     g.addEventListener("blur", hideTip);
-    g.addEventListener("click", () => openZone(row.zone, row.country));
-    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openZone(row.zone, row.country); } });
+    if (!grouped) {
+      g.addEventListener("click", () => openZone(row.zone, row.country));
+      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openZone(row.zone, row.country); } });
+    }
     svg.appendChild(g);
   });
   svg.appendChild(svgEl("text", { class: "sub", x: xs(0), y: H - 2, "text-anchor": "middle" }, "0"));
@@ -471,11 +486,18 @@ function showTip(e, row, metric, anchor) {
   const tip = $("tip"), area = $("chart-area").getBoundingClientRect();
   const m = row.metric || metric;
   tip.replaceChildren();
+  if (row.group) {
+    tip.appendChild(el("b", {}, fmtValue(row.l0w_value, m)));
+    tip.appendChild(el("div", {}, `Zonas ${row.group} · promedio de ${row.n_zonas} zonas`));
+    tip.appendChild(el("div", { class: "hint" }, `${fmtDelta(row.pct_change_wow)} vs semana anterior · ` +
+                                              `${nf(1).format(row.pct_declining)} % con 3+ semanas bajando`));
+  } else {
   tip.appendChild(el("b", {}, row.pct_change_wow != null ? fmtDelta(row.pct_change_wow) : fmtValue(row.l0w_value, m)));
   tip.appendChild(el("div", {}, `${row.zone} · ${row.city}`));
   tip.appendChild(el("div", { class: "hint" }, `${metricLabel(m)}: ${fmtValue(row.l0w_value, m)} esta semana` +
                                             (row.l1w_value != null ? `, ${fmtValue(row.l1w_value, m)} la anterior` : "")));
   tip.appendChild(el("div", { class: "hint" }, "Clic para ver el detalle de la zona"));
+  }
   tip.style.display = "block";
   const rect = anchor ? anchor.getBoundingClientRect() : { left: e.clientX, top: e.clientY, height: 0 };
   let x = (anchor ? rect.left + 220 : e.clientX + 14) - area.left, y = rect.top - area.top + (anchor ? rect.height : 14);
@@ -484,8 +506,27 @@ function showTip(e, row, metric, anchor) {
 }
 function hideTip() { $("tip").style.display = "none"; }
 
-function dataTable({ rows, metric }) {
+function dataTable({ rows, metric, grouped }) {
   const t = el("table", { class: "data" });
+  if (grouped) {
+    const head = el("tr");
+    ["Tipo de zona", "Zonas", "Promedio esta semana", "Cambio promedio", "Con 3+ semanas bajando"]
+      .forEach((h, i) => head.appendChild(el("th", i ? { class: "num" } : {}, h)));
+    t.appendChild(el("thead")).appendChild(head);
+    const tb = el("tbody");
+    rows.forEach((row) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", {}, row.group));
+      tr.appendChild(el("td", { class: "num" }, String(row.n_zonas)));
+      tr.appendChild(el("td", { class: "num" }, fmtValue(row.l0w_value, row.metric || metric)));
+      const d = el("td", { class: "num" }); d.appendChild(el("span", { class: "delta " + (row.pct_change_wow < 0 ? "down" : "up") }, fmtDelta(row.pct_change_wow)));
+      tr.appendChild(d);
+      tr.appendChild(el("td", { class: "num" }, `${nf(1).format(row.pct_declining)} %`));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    return t;
+  }
   const head = el("tr");
   ["Zona", "Ciudad", "País", "Esta semana", "Cambio vs anterior"].forEach((h, i) => head.appendChild(el("th", i > 2 ? { class: "num" } : {}, h)));
   t.appendChild(el("thead")).appendChild(head);
@@ -561,6 +602,9 @@ function drawSpark(vals) {
 // ---------- history ----------
 function addHistory(q) {
   $("history").hidden = false;
+  const key = q.trim().toLowerCase();
+  [...$("history-list").children].forEach((li) => { if (li.textContent.trim().toLowerCase() === key) li.remove(); });
+  while ($("history-list").children.length >= 8) $("history-list").lastElementChild.remove();
   const li = el("li"); const b = el("button", { type: "button" }, q); b.onclick = () => ask(q); li.appendChild(b);
   $("history-list").prepend(li);
 }

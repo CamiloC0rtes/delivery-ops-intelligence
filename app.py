@@ -174,6 +174,8 @@ Glosario de columnas:
 - IS_DECLINING_3W: True = 3+ semanas bajando consecutivamente
 - ZSCORE_VS_CITY: desviaciones vs promedio de su ciudad (< -1.5 = bajo performance)
 - TREND_SLOPE: pendiente de tendencia (negativo = deterioro)
+- Los valores ya vienen formateados ("86,5 %", "1.234"): cópialos tal cual, no los conviertas ni recalcules
+- Comparación por grupo: "cambio_promedio" es el cambio vs semana anterior promedio del grupo; "zonas_en_deterioro" es el % de sus zonas con 3+ semanas bajando
 """
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -216,19 +218,71 @@ def extract_entities(message: str, prev_questions: list[str], context: dict, cli
         log.warning("Entity extraction failed: %s", e)
         return {"intent": "summary"}
 
+def _es(text: str) -> str:
+    """1,234.5 -> 1.234,5 (Spanish separators)."""
+    return text.replace(",", "\0").replace(".", ",").replace("\0", ".")
+
+
+def fmt_metric(metric: str | None, v) -> str:
+    """A value the way a person reads it: ratios as "86,5 %", orders as "1.234", money as "1,14".
+
+    Done here, not in the prompt: told to "convert ratios to %", the model still wrote 0.8647.
+    """
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return "s/d"
+    kind = METRICS.get(metric or "", {}).get("kind")
+    if kind == "ratio":
+        return _es(f"{v * 100:.1f}") + " %"
+    if kind == "count":
+        return _es(f"{v:,.0f}")
+    if kind == "currency":
+        return _es(f"{v:,.2f}")
+    return _es(f"{v:,.4g}")
+
+
+def fmt_pct(v, signed: bool = True) -> str:
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return "s/d"
+    return _es(f"{v:+.1f}" if signed else f"{v:.1f}") + " %"
+
+
 def summarize(df: pd.DataFrame) -> str:
     """Deterministic aggregates over the FULL result, so the LLM never counts or averages a sample."""
+    if "ZONE" not in df.columns and {"ZONE_TYPE", "n_zonas"} <= set(df.columns):
+        groups = ", ".join(f"{g} ({n} zonas)" for g, n in zip(df["ZONE_TYPE"], df["n_zonas"], strict=True))
+        return f"Comparación de {len(df)} grupos: {groups}"
     lines = [f"Registros totales: {len(df)}"]
     if "ZONE" in df.columns:
         lines.append(f"Zonas distintas: {df['ZONE'].nunique()}")
     for col, label in (("COUNTRY", "Países"), ("CITY", "Ciudades")):
         if col in df.columns and df[col].nunique() <= 12:
             lines.append(f"{label}: {', '.join(sorted(map(str, df[col].dropna().unique())))}")
-    if {"METRIC", "L0W_VALUE"} <= set(df.columns):
+    if {"METRIC", "L0W_VALUE"} <= set(df.columns) and "ZONE" in df.columns:
         stats = df.groupby("METRIC")["L0W_VALUE"].agg(["count", "mean", "min", "max"])
         for metric, r in stats.iterrows():
-            lines.append(f"{metric}: {int(r['count'])} zonas · promedio {r['mean']:.4g} · mín {r['min']:.4g} · máx {r['max']:.4g}")
+            f = lambda v, m=metric: fmt_metric(m, v)  # noqa: E731
+            lines.append(f"{metric}: {int(r['count'])} zonas · promedio {f(r['mean'])} · "
+                         f"mín {f(r['min'])} · máx {f(r['max'])}")
     return "\n".join(lines)
+
+
+def readable_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Same rows, values pre-formatted per metric kind so the model copies them instead of converting."""
+    out = df.copy()
+    metric_of = out["METRIC"] if "METRIC" in out.columns else pd.Series([None] * len(out), index=out.index)
+    for col in ("L0W_VALUE", "L1W_VALUE"):
+        if col in out.columns:
+            out[col] = [fmt_metric(m, v) for m, v in zip(metric_of, out[col], strict=True)]
+    if "PCT_CHANGE_WOW" in out.columns:
+        out["PCT_CHANGE_WOW"] = out["PCT_CHANGE_WOW"].map(fmt_pct)
+    if "pct_declining" in out.columns:
+        out["pct_declining"] = out["pct_declining"].map(lambda v: fmt_pct(v, signed=False))
+    for col in ("Lead Penetration", "Perfect Orders"):
+        if col in out.columns:
+            out[col] = out[col].map(lambda v, m=col: fmt_metric(m, v))
+    for col in out.select_dtypes(include="float").columns:
+        out[col] = out[col].round(4)
+    return out
 
 
 def df_to_text(df: pd.DataFrame, max_rows: int = 20) -> str:
@@ -242,9 +296,10 @@ def df_to_text(df: pd.DataFrame, max_rows: int = 20) -> str:
     cols = [c for c in preferred if c in df.columns]
     if not cols:
         cols = list(df.columns)
-    sample = df[cols].head(max_rows).copy()
-    for col in sample.select_dtypes(include="float").columns:
-        sample[col] = sample[col].round(4)
+    sample = readable_table(df[cols].head(max_rows))
+    if "ZONE" not in df.columns and "ZONE_TYPE" in df.columns:  # Wealthy vs Non Wealthy: one row per group
+        sample = sample.rename(columns={"L0W_VALUE": "promedio_esta_semana", "PCT_CHANGE_WOW": "cambio_promedio",
+                                        "pct_declining": "zonas_en_deterioro", "n_zonas": "zonas"})
     shown = ("TABLA (todas las filas)" if len(df) <= max_rows
              else f"TABLA (muestra: primeras {max_rows} de {len(df)} filas)")
     return f"RESUMEN\n{summarize(df)}\n\n{shown}\n{sample.to_string(index=False)}"
@@ -626,9 +681,20 @@ METRIC_LABELS_ES = {
 
 
 def result_rows(df: pd.DataFrame, limit: int = 15) -> list[dict]:
-    """Rows the UI can chart, tabulate and click through to a zone (same rows the answer used)."""
-    if df.empty or "ZONE" not in df.columns:
+    """Rows the UI can chart, tabulate and click through to a zone (same rows the answer used).
+
+    A Wealthy vs Non Wealthy comparison has one row per group instead of per zone; those come back
+    with "group" instead of "zone" so the UI charts them as (non-clickable) group bars.
+    """
+    if df.empty:
         return []
+    if "ZONE" not in df.columns:
+        if "ZONE_TYPE" not in df.columns:
+            return []
+        cols = [c for c in ("ZONE_TYPE", "METRIC", "L0W_VALUE", "PCT_CHANGE_WOW", "n_zonas", "pct_declining")
+                if c in df.columns]
+        rows = df[cols].head(limit).rename(columns={"ZONE_TYPE": "GROUP"}).to_dict("records")
+        return [{k.lower(): v for k, v in r.items()} for r in rows]
     cols = [c for c in ("ZONE", "CITY", "COUNTRY", "METRIC", "L0W_VALUE", "L1W_VALUE", "PCT_CHANGE_WOW",
                         "IS_DECLINING_3W", "ZONE_TYPE") if c in df.columns]
     rows = df[cols].head(limit).to_dict("records")
@@ -670,6 +736,16 @@ def follow_up_suggestions(ctx: dict, df: pd.DataFrame) -> list[str]:
     """Deterministic next questions built from the answer just given (no LLM call)."""
     out = []
     metric = ctx.get("metric")
+    if ctx.get("zone_type") == "comparison" or ctx.get("intent") == "comparison":
+        name = METRIC_LABELS_ES.get(metric, metric) if metric else None
+        if name:
+            out.append(f"¿Qué zonas Non Wealthy cayeron más en {name}?")
+            out.append(f"¿Qué zonas Wealthy tienen deterioro sostenido en {name}?")
+        out.append("Compara Wealthy vs Non Wealthy en pedidos" if metric != "Orders"
+                   else "Compara Wealthy vs Non Wealthy en Perfect Orders")
+        if not ctx.get("country"):
+            out.append("Solo Colombia")
+        return out[:4]
     if ctx.get("intent") in ("ranking", None) or ctx.get("top_n"):
         if ctx.get("sort_order") == "asc" and ctx.get("rank_by", "change") == "change":
             out.append("¿Y cuáles crecieron más?")
